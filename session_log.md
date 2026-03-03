@@ -198,7 +198,26 @@ Received deep critical review from another agent. Key valid points incorporated:
 - All coding/infrastructure is complete by end of Phase 4
 - Phase 6 is structured experimentation, not new code — hyperparams, architectures, scaling
 
+- Created `specs/prompts.md` — copy-paste prompts for each phase (solo + team agent variants)
+- Created `specs/machine-transfer-plan.md` — full git sync workflow between MacBook and PC
+- Decided MacBook can handle Phases 0-3 (M4 is fine for 2.7M param model on MPS), PC needed for Phase 4+
+- User has ~30GB free on MacBook — enough for Phases 0-3 (~6-7 GB)
+- Set up GitHub:
+  - Initialized git repo in `solitaire/`
+  - Lonelybot added as git submodule (not committed source)
+  - `.gitignore` covers build artifacts, training data, checkpoints, venvs
+  - Private repo created: `https://github.com/dannyboy637/klondike-solver`
+  - Initial commit pushed to `main`
+
+### Key decisions
+- 7 total phases (0-6), with Phase 5 optional and Phase 6 ongoing
+- All coding/infrastructure is complete by end of Phase 4
+- Phase 6 is structured experimentation, not new code — hyperparams, architectures, scaling
+- MacBook for Phases 0-3 (traveling), PC for Phase 4+ (heavy compute)
+- Git + GitHub private repo for machine sync, large files (data/checkpoints) stay local
+
 ### Open threads for next session
-- **Execute Phase 0**: Build Lonelybot on PC, reproduce baselines, get draw-1 number
+- **Execute Phase 0**: Build Lonelybot, reproduce baselines, get draw-1 number
+- Copy prompt from `specs/prompts.md` → Phase 0 section
 - Verify Card encoding convention (`Card(u8)` internals vs our `rank * 4 + suit`)
-- Transfer project to PC for building (MacBook <20GB, specs only)
+- On PC later: `git clone --recurse-submodules https://github.com/dannyboy637/klondike-solver.git`

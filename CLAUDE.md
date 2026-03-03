@@ -113,6 +113,8 @@ Each gate must pass before proceeding. Predefined stop criteria at each stage.
 ## File Structure
 
 ### Implementation Specs (start here for coding)
+- `specs/prompts.md` — **copy-paste prompts for each phase** (solo + team agent variants)
+- `specs/machine-transfer-plan.md` — git sync workflow between MacBook and PC
 - `specs/00-overview.md` — master plan, dependency graph, decision gates, directory structure
 - `specs/phase-0-setup-baselines.md` — build Lonelybot, reproduce baselines, get draw-1 number
 - `specs/phase-1-pyo3-bridge.md` — Rust PyO3 crate + Python interface + encoding + actions
@@ -135,9 +137,15 @@ Each gate must pass before proceeding. Predefined stop criteria at each stage.
 - `klondike research.rtf` — original project plan with phases
 
 ### Code (built during implementation)
-- `lonelybot/` — cloned Lonelybot repo (unmodified)
+- `lonelybot/` — Lonelybot repo (git submodule, unmodified)
 - `klondike-env/` — Rust PyO3 crate (Phase 1)
 - `klondike/` — Python package (Phases 1-4)
+
+## Repository
+- **GitHub**: `https://github.com/dannyboy637/klondike-solver` (private)
+- **Lonelybot**: git submodule — clone with `--recurse-submodules`
+- **Machine workflow**: MacBook (Phases 0-3, MPS) ↔ PC (Phase 4+, CUDA). See `specs/machine-transfer-plan.md`
+- **PyTorch device**: use `"mps"` on Mac, `"cuda"` on PC (auto-detect in code)
 
 ## Guidelines for Claude
 - Always check `current_context.md` before starting work — it has the latest state of understanding
