@@ -1,0 +1,784 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2822
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fnil\fcharset0 .SFNSMono-Light_YAXS14FD5C2_wght2BC0000;\f1\fnil\fcharset0 .SFNSMono-Light_YAXS1445581_wght1680000;\f2\fnil\fcharset0 .SFNSMono-LightItalic_YAXS1445581_wght1680000;
+\f3\fnil\fcharset0 .SFNS-Regular_wdth_opsz110000_GRAD_wght1680000;\f4\fnil\fcharset0 HelveticaNeue;\f5\fnil\fcharset0 .SFNSMono-Light_YAXS140B3B6_wght1C20000;
+}
+{\colortbl;\red255\green255\blue255;\red201\green206\blue214;\red29\green29\blue27;\red239\green99\blue114;
+\red229\green231\blue236;\red191\green94\blue241;\red110\green117\blue134;\red82\green235\blue232;\red249\green248\blue242;
+\red181\green179\blue167;}
+{\*\expandedcolortbl;;\cssrgb\c82745\c84314\c87059;\cssrgb\c14902\c14902\c14118;\cssrgb\c95686\c48235\c52157;
+\cssrgb\c91765\c92549\c94118;\cssrgb\c80000\c48235\c95686;\cssrgb\c50588\c53333\c59608;\cssrgb\c36863\c92941\c92941;\cssrgb\c98039\c97647\c96078;
+\cssrgb\c76078\c75294\c71373;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\deftab720
+\pard\pardeftab720\partightenfactor0
+
+\f0\b\fs18 \cf2 \cb3 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 #\cf4 \strokec4  Klondike Solitaire EV Analysis \'97 Project Plan
+\f1\b0 \cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Context
+\f1\b0 \cf5 \strokec5 \
+\
+1xbet offers Klondike solitaire with a \cf2 \strokec2 **\cf5 \strokec5 2x payout\cf2 \strokec2 **\cf5 \strokec5  on wins. The rules are: draw-1, unlimited passes through the stock, no undo, standard 52-card deck, 7 tableau columns, only kings fill empty columns. To break even at 2x, you need a \cf2 \strokec2 **\cf5 \strokec5 >50% win rate\cf2 \strokec2 **\cf5 \strokec5 .\
+\
+Research findings:\
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Theoretical solvability (Thoughtful Klondike, draw-1, unlimited passes): ~82\'9691%\cf2 \strokec2 **\cf5 \strokec5  \'97 this is with perfect information (all cards visible)\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Best documented human win rate (no undo): ~43%\cf2 \strokec2 **\cf5 \strokec5  (Jupiter Scientific, 442 games)\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Average player win rate: ~33%\cf2 \strokec2 **\cf5 \strokec5  (Solitaired.com, 2.9M games)\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Best heuristic computer solver: ~52.9\'9653.4%\cf2 \strokec2 **\cf5 \strokec5  (Bill Turnbull, 10M games)\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 State-of-the-art AI (Lonelybot HOP/MCTS, draw-3): 47.58% \'b1 0.80%\cf2 \strokec2 **\cf5 \strokec5  \'97 draw-1 estimated a few points higher\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Industry slot RTP for comparison: 93\'9697%\cf2 \strokec2 **\cf5 \strokec5  (house edge 3\'967%). This solitaire game has an effective RTP of 66\'9686% depending on skill (house edge 14\'9634%).\
+\
+\cf2 \strokec2 **\cf5 \strokec5 Goal\cf2 \strokec2 **\cf5 \strokec5 : Empirically determine the exact win rate for draw-1 unlimited-pass Klondike under imperfect information using solvers, and evaluate whether any exploitable edge exists.\
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Phase 1: Fork & Configure Lonelybot
+\f1\b0 \cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Overview
+\f1\b0 \cf5 \strokec5 \
+Lonelybot is the current state-of-the-art Klondike solver, written in Rust. It supports both Thoughtful (perfect info) and Random (imperfect info via HOP/MCTS) solving.\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Steps
+\f1\b0 \cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 1.\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Clone the repo\cf2 \strokec2 **\cf5 \strokec5 \
+   ```bash\
+   git clone https://github.com/vuonghy2442/lonelybot.git\
+   cd lonelybot\
+   ```\
+\
+\cf2 \strokec2 2.\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Understand the codebase structure\cf2 \strokec2 **\cf5 \strokec5 \
+   \cf2 \strokec2 -\cf5 \strokec5  \cf6 \strokec6 `lonelybot/`\cf5 \strokec5  \'97 core engine library (game state, solver logic, MCTS)\
+   \cf2 \strokec2 -\cf5 \strokec5  \cf6 \strokec6 `lonecli/`\cf5 \strokec5  \'97 CLI wrapper binary\
+   \cf2 \strokec2 -\cf5 \strokec5  Key files to examine: game state representation, move generation, solver modes\
+   \cf2 \strokec2 -\cf5 \strokec5  Look at how draw count and pass limits are configured\
+\
+\cf2 \strokec2 3.\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Configure for 1xbet rules\cf2 \strokec2 **\cf5 \strokec5 \
+   \cf2 \strokec2 -\cf5 \strokec5  Set draw count to \cf2 \strokec2 **\cf5 \strokec5 1\cf2 \strokec2 **\cf5 \strokec5  (draw-1)\
+   \cf2 \strokec2 -\cf5 \strokec5  Set pass limit to \cf2 \strokec2 **\cf5 \strokec5 unlimited\cf2 \strokec2 **\cf5 \strokec5  (infinite passes through stock)\
+   \cf2 \strokec2 -\cf5 \strokec5  Ensure king-only empty column fills\
+   \cf2 \strokec2 -\cf5 \strokec5  Verify standard Klondike tableau setup (7 columns, 1-7 cards)\
+   \cf2 \strokec2 -\cf5 \strokec5  No undo (this is inherent in the imperfect-info solver \'97 it doesn't backtrack with revealed information)\
+\
+\cf2 \strokec2 4.\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Build and verify\cf2 \strokec2 **\cf5 \strokec5 \
+   ```bash\
+   cd lonecli\
+   cargo build --release\
+   cargo run --release -- help\
+   ```\
+   \cf2 \strokec2 -\cf5 \strokec5  Run a small batch (100 games) in Thoughtful mode to verify it's working\
+   \cf2 \strokec2 -\cf5 \strokec5  Cross-check a few results against known Solvitaire benchmarks\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Key Config Parameters to Find
+\f1\b0 \cf5 \strokec5 \
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 -\cf5 \strokec5  Draw count setting (should be 1)\
+\cf2 \strokec2 -\cf5 \strokec5  Stock pass limit (should be unlimited/infinite)\
+\cf2 \strokec2 -\cf5 \strokec5  Solver mode toggle (Thoughtful vs Random/HOP/MCTS)\
+\cf2 \strokec2 -\cf5 \strokec5  Seed type for reproducibility\
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Phase 2: Large-Scale Simulation
+\f1\b0 \cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  2A: Thoughtful Mode (Upper Bound)
+\f1\b0 \cf5 \strokec5 \
+\
+This tells us what percentage of draw-1 deals are theoretically winnable with perfect information. This is the absolute ceiling \'97 no player or AI can exceed this.\
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 ```\cf5 \strokec5 bash\
+\pard\pardeftab720\partightenfactor0
+\cf7 \strokec7 # Target: 100,000+ games\cf5 \strokec5 \
+\cf7 \strokec7 # Expected result: ~88\'9691% solvability for draw-1 unlimited passes\cf5 \strokec5 \
+cargo run --release -- \cf2 \strokec2 [\cf5 \strokec5 thoughtful mode flags\cf2 \strokec2 ]\cf5 \strokec5  --games \cf8 \strokec8 100000\cf5 \strokec5 \
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 ```\cf5 \strokec5 \
+\
+\cf2 \strokec2 **\cf5 \strokec5 Output to capture:\cf2 \strokec2 **\cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  Total games played\
+\cf2 \strokec2 -\cf5 \strokec5  Games solved / unsolved\
+\cf2 \strokec2 -\cf5 \strokec5  Solvability percentage with confidence interval\
+\cf2 \strokec2 -\cf5 \strokec5  Average solve time per game\
+\cf2 \strokec2 -\cf5 \strokec5  Any unsolvable games for later analysis\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  2B: HOP/MCTS Imperfect Info Mode (AI Best Case)
+\f1\b0 \cf5 \strokec5 \
+\
+This is the realistic ceiling \'97 what the best possible player could achieve without seeing hidden cards.\
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 ```\cf5 \strokec5 bash\
+\pard\pardeftab720\partightenfactor0
+\cf7 \strokec7 # Target: 10,000\'9650,000 games (MCTS is slower)\cf5 \strokec5 \
+\cf7 \strokec7 # Expected result: ~50\'9655% for draw-1 (extrapolated from 47.58% on draw-3)\cf5 \strokec5 \
+cargo run --release -- \cf2 \strokec2 [\cf5 \strokec5 random/MCTS mode flags\cf2 \strokec2 ]\cf5 \strokec5  --games \cf8 \strokec8 50000\cf5 \strokec5 \
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 ```\cf5 \strokec5 \
+\
+\cf2 \strokec2 **\cf5 \strokec5 Output to capture:\cf2 \strokec2 **\cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  Win rate with confidence interval\
+\cf2 \strokec2 -\cf5 \strokec5  Distribution of games by number of cards sent to foundation (partial progress)\
+\cf2 \strokec2 -\cf5 \strokec5  Average decision time per move\
+\cf2 \strokec2 -\cf5 \strokec5  Win rate by game difficulty (if classifiable)\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Statistical Notes
+\f1\b0 \cf5 \strokec5 \
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 -\cf5 \strokec5  For a 95% CI on win rate at \cf2 \strokec2 ~\cf5 \strokec5 50%, you need:\
+  - 10,000 games \uc0\u8594  \'b1 \cf2 \strokec2 ~\cf5 \strokec5 1.0%\
+  \cf2 \strokec2 -\cf5 \strokec5  50,000 games \uc0\u8594  \'b1 \cf2 \strokec2 ~\cf5 \strokec5 0.45%\
+  - 100,000 games \uc0\u8594  \'b1 \cf2 \strokec2 ~\cf5 \strokec5 0.31%\
+\cf2 \strokec2 -\cf5 \strokec5  The critical question is whether the CI includes or excludes 50%\
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Phase 3: Human-Like Heuristic Player
+\f1\b0 \cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Why This Matters
+\f1\b0 \cf5 \strokec5 \
+Lonelybot's MCTS does deep lookahead with hypothesis testing (sampling possible hidden card arrangements). No human can do this. We need a "strong human" baseline that plays using rules of thumb.\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Approach A: Adapt an Existing Heuristic Solver
+\f1\b0 \cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 **\cf5 \strokec5 Daniel Collins' SolitaireSolver\cf2 \strokec2 **\cf5 \strokec5  (Java, GitHub)\
+\cf2 \strokec2 -\cf5 \strokec5  Already runs heuristic play over 100K games per ruleset\
+\cf2 \strokec2 -\cf5 \strokec5  Reports ~7.6% on draw-3 with 3 passes (but draw-1 unlimited should be much higher)\
+\cf2 \strokec2 -\cf5 \strokec5  Repo: https://github.com/danielrcollins1/SolitaireSolver\
+\cf2 \strokec2 -\cf5 \strokec5  Could modify heuristics and run on draw-1 unlimited passes\
+\
+\cf2 \strokec2 **\cf5 \strokec5 Bill Turnbull's approach\cf2 \strokec2 **\cf5 \strokec5  (not open source, but documented)\
+\cf2 \strokec2 -\cf5 \strokec5  Achieved 52.9% on draw-1 unlimited passes over 10M games\
+\cf2 \strokec2 -\cf5 \strokec5  Heuristic rules are partially documented online\
+\cf2 \strokec2 -\cf5 \strokec5  Could reverse-engineer the strategy\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Approach B: Build a Custom Heuristic Engine (Python)
+\f1\b0 \cf5 \strokec5 \
+\
+Build a Klondike engine from scratch with pluggable strategy modules:\
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 ```\cf5 \strokec5 \
+klondike_engine/\
+\uc0\u9500 \u9472 \u9472  game.py          # Game state, card representation, move generation\
+\uc0\u9500 \u9472 \u9472  deck.py          # Shuffling, dealing\
+\uc0\u9500 \u9472 \u9472  tableau.py       # Tableau column logic\
+\uc0\u9500 \u9472 \u9472  foundation.py    # Foundation pile logic\
+\uc0\u9500 \u9472 \u9472  stock.py         # Stock/waste pile with draw-1, unlimited passes\
+\uc0\u9500 \u9472 \u9472  solver.py        # Base solver interface\
+\uc0\u9500 \u9472 \u9472  heuristic.py     # Rule-based heuristic player\
+\uc0\u9500 \u9472 \u9472  simulator.py     # Run N games, collect stats\
+\uc0\u9500 \u9472 \u9472  analytics.py     # Win rate, CI, EV calculations\
+\uc0\u9492 \u9472 \u9472  main.py          # CLI entry point\
+\cf2 \strokec2 ```\cf5 \strokec5 \
+\
+\cf2 \strokec2 **\cf5 \strokec5 Core heuristic rules (priority order):\cf2 \strokec2 **\cf5 \strokec5 \
+\cf2 \strokec2 1.\cf5 \strokec5  Always play an Ace to foundation\
+\cf2 \strokec2 2.\cf5 \strokec5  Always play a 2 to foundation if the corresponding Ace is already there\
+\cf2 \strokec2 3.\cf5 \strokec5  Play to foundation if both cards of the opposite color and one rank lower are already on foundations (safe foundation play)\
+\cf2 \strokec2 4.\cf5 \strokec5  Prefer moves that reveal face-down cards\
+\cf2 \strokec2 5.\cf5 \strokec5  Prefer moves that free up tableau columns\
+\cf2 \strokec2 6.\cf5 \strokec5  Move Kings to empty columns (prefer Kings with the most face-down cards behind them)\
+\cf2 \strokec2 7.\cf5 \strokec5  Build tableau sequences that uncover the most hidden cards\
+\cf2 \strokec2 8.\cf5 \strokec5  Draw from stock as a last resort\
+\cf2 \strokec2 9.\cf5 \strokec5  Track stock cycling to detect dead-end loops\
+\
+\cf2 \strokec2 **\cf5 \strokec5 Advanced heuristics:\cf2 \strokec2 **\cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  Don't send cards to foundation too eagerly (they may be needed for tableau building)\
+\cf2 \strokec2 -\cf5 \strokec5  Prefer longer tableau builds (more cards uncovered per move sequence)\
+\cf2 \strokec2 -\cf5 \strokec5  When choosing between equivalent moves, prefer the one in the column with more face-down cards\
+\cf2 \strokec2 -\cf5 \strokec5  Detect "stuck" states (cycling stock with no new moves) and give up\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Target Results
+\f1\b0 \cf5 \strokec5 \
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 -\cf5 \strokec5  Run 100,000+ games with heuristic player\
+\cf2 \strokec2 -\cf5 \strokec5  Expected win rate: 35\'9645% (between average human and best AI)\
+\cf2 \strokec2 -\cf5 \strokec5  Compare against Lonelybot's MCTS to quantify the skill gap\
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Phase 4: EV & Profitability Dashboard
+\f1\b0 \cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  EV Calculations
+\f1\b0 \cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 ```\cf5 \strokec5 \
+EV per bet = (win_rate \'d7 payout) - 1\
+\
+Where:\
+- win_rate = decimal (0.0 to 1.0)\
+- payout = 2.0 (2x on win, lose stake on loss)\
+\
+Breakeven: win_rate = 0.50\
+\
+Examples:\
+- 33% win rate \uc0\u8594  EV = 0.33 \'d7 2 - 1 = -0.34 (lose 34\'a2 per \u8369 1 bet)\
+- 43% win rate \uc0\u8594  EV = 0.43 \'d7 2 - 1 = -0.14 (lose 14\'a2 per \u8369 1 bet)\
+- 50% win rate \uc0\u8594  EV = 0.50 \'d7 2 - 1 = 0.00 (breakeven)\
+- 53% win rate \uc0\u8594  EV = 0.53 \'d7 2 - 1 = +0.06 (win 6\'a2 per \u8369 1 bet)\
+\cf2 \strokec2 ```\cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Hourly Rate Analysis
+\f1\b0 \cf5 \strokec5 \
+\
+Even if marginally +EV, time cost matters:\
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 ```\cf5 \strokec5 \
+hourly_ev = (ev_per_bet \'d7 bet_size \'d7 games_per_hour)\
+\
+Assumptions:\
+- Average game duration: 5\'9615 minutes\
+- Games per hour: 4\'9612\
+- Bet size: variable (min \uc0\u8369 1, max \u8369 35,150.60)\
+\
+Example at 53% win rate, \uc0\u8369 100 bet, 6 games/hour:\
+hourly_ev = 0.06 \'d7 100 \'d7 6 = \uc0\u8369 36/hour\
+\
+Example at 43% win rate, \uc0\u8369 100 bet, 6 games/hour:\
+hourly_ev = -0.14 \'d7 100 \'d7 6 = -\uc0\u8369 84/hour\
+\cf2 \strokec2 ```\cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Variance & Bankroll Requirements
+\f1\b0 \cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 ```\cf5 \strokec5 \
+For a binary outcome (win 1x or lose 1x):\
+- Variance per game = win_rate \'d7 (1 - win_rate) \'d7 payout\'b2\
+- Standard deviation per game \uc0\u8776  1.0 (roughly)\
+- For N games: SD = sqrt(N) \'d7 per_game_SD\
+\
+Kelly Criterion (if +EV):\
+- Optimal bet fraction = (b\'d7p - q) / b\
+  where b = net payout odds (1:1), p = win prob, q = lose prob\
+- At 53%: kelly = (1\'d70.53 - 0.47) / 1 = 0.06 (bet 6% of bankroll)\
+\cf2 \strokec2 ```\cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Build a Simple Dashboard (React or Python)
+\f1\b0 \cf5 \strokec5 \
+\
+Inputs:\
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 -\cf5 \strokec5  Empirical win rate (from Phase 2/3 simulations)\
+\cf2 \strokec2 -\cf5 \strokec5  Bet size in PHP\
+\cf2 \strokec2 -\cf5 \strokec5  Estimated games per hour\
+\cf2 \strokec2 -\cf5 \strokec5  Bankroll size\
+\
+Outputs:\
+\cf2 \strokec2 -\cf5 \strokec5  EV per game\
+\cf2 \strokec2 -\cf5 \strokec5  EV per hour\
+\cf2 \strokec2 -\cf5 \strokec5  RTP equivalent\
+\cf2 \strokec2 -\cf5 \strokec5  Probability of ruin at various bankroll levels\
+\cf2 \strokec2 -\cf5 \strokec5  Comparison vs. slot games (96% RTP baseline)\
+\cf2 \strokec2 -\cf5 \strokec5  Kelly bet sizing (if +EV)\
+\cf2 \strokec2 -\cf5 \strokec5  Required win rate to justify playing\
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Phase 5: Risk Assessment & Platform Concerns
+\f1\b0 \cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Things to Investigate
+\f1\b0 \cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 1.\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Shuffle fairness\cf2 \strokec2 **\cf5 \strokec5 : Is the 1xbet RNG truly random?\
+   \cf2 \strokec2 -\cf5 \strokec5  Cura\'e7ao license = minimal independent testing\
+   \cf2 \strokec2 -\cf5 \strokec5  1xGames are proprietary (not third-party audited like Evolution/Betsoft)\
+   \cf2 \strokec2 -\cf5 \strokec5  No way to verify from outside\
+\
+\cf2 \strokec2 2.\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Hidden rules or mechanics\cf2 \strokec2 **\cf5 \strokec5 :\
+   \cf2 \strokec2 -\cf5 \strokec5  Does the game actually allow unlimited passes? Test empirically.\
+   \cf2 \strokec2 -\cf5 \strokec5  Is there a hidden timer that forces suboptimal play?\
+   \cf2 \strokec2 -\cf5 \strokec5  Do they count disconnection/timeout as a loss?\
+   \cf2 \strokec2 -\cf5 \strokec5  The 7-day completion window \'97 does this matter?\
+\
+\cf2 \strokec2 3.\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Account risk\cf2 \strokec2 **\cf5 \strokec5 :\
+   \cf2 \strokec2 -\cf5 \strokec5  1xbet has documented history of freezing accounts of winning players\
+   \cf2 \strokec2 -\cf5 \strokec5  Even if +EV, withdrawal risk is real\
+   \cf2 \strokec2 -\cf5 \strokec5  "Simultaneous play on two or more tables is prohibited" \'97 they're watching\
+\
+\cf2 \strokec2 4.\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Bot detection\cf2 \strokec2 **\cf5 \strokec5 :\
+   \cf2 \strokec2 -\cf5 \strokec5  If using a solver to assist play, how would they detect it?\
+   \cf2 \strokec2 -\cf5 \strokec5  Play patterns, decision speed, win rate anomalies\
+   \cf2 \strokec2 -\cf5 \strokec5  Risk of account ban and fund seizure\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Recommendation Framework
+\f1\b0 \cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 |
+\f0\b \cf4 \strokec4  Win Rate 
+\f1\b0 \cf2 \strokec2 |
+\f0\b \cf4 \strokec4  EV 
+\f1\b0 \cf2 \strokec2 |
+\f0\b \cf4 \strokec4  Verdict 
+\f1\b0 \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |---|---|---|\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  < 45% \cf2 \strokec2 |\cf5 \strokec5  Negative \cf2 \strokec2 |\cf5 \strokec5  Do not play \'97 worse than slots \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  45\'9650% \cf2 \strokec2 |\cf5 \strokec5  Slightly negative \cf2 \strokec2 |\cf5 \strokec5  Marginal \'97 only with large volume and discipline \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  50\'9652% \cf2 \strokec2 |\cf5 \strokec5  Breakeven to slim + \cf2 \strokec2 |\cf5 \strokec5  Theoretically exploitable but platform risk dominates \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  52%+ \cf2 \strokec2 |\cf5 \strokec5  Positive \cf2 \strokec2 |\cf5 \strokec5  Potentially exploitable IF shuffle is fair AND withdrawals work \cf2 \strokec2 |\cf5 \strokec5 \
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Key Resources
+\f1\b0 \cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Solvers & Engines
+\f1\b0 \cf5 \strokec5 \
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Lonelybot\cf2 \strokec2 **\cf5 \strokec5  (Rust, SOTA): https://github.com/vuonghy2442/lonelybot\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 MinimalKlondike\cf2 \strokec2 **\cf5 \strokec5  (C++, IDA
+\f2\i \cf2 \strokec2 *\cf5 \strokec5 ): https://github.com/ShootMe/MinimalKlondike\
+- \cf2 \strokec2 **\cf5 \strokec5 SolitaireSolver\cf2 \strokec2 **\cf5 \strokec5  (Java, heuristic): https://github.com/danielrcollins1/SolitaireSolver\
+- \cf2 \strokec2 *
+\f1\i0 \cf5 \strokec5 *Solvitaire** (C++, academic): Referenced in Blake & Gent paper\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Academic Papers
+\f1\b0 \cf5 \strokec5 \
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 -\cf5 \strokec5  Blake & Gent, "The Winnability of Klondike Solitaire and Many Other Patience Games" (arXiv:1906.12314v5, JAIR 2026)\
+\cf2 \strokec2 -\cf5 \strokec5  Bjarnason, Fern, Tadepalli, "Searching Solitaire in Real Time" (Oregon State, ICGA 2007)\
+\cf2 \strokec2 -\cf5 \strokec5  Yan, Diaconis, Rusmevichientong, Van Roy, "Solitaire: Man Versus Machine" (Stanford, NIPS 2005)\
+\cf2 \strokec2 -\cf5 \strokec5  Voima, "Klondike Solitaire Solvability" (Bachelor's thesis, 2021)\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Community Data
+\f1\b0 \cf5 \strokec5 \
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 -\cf5 \strokec5  Bill Turnbull's Solitaire Tester: 100M game simulation results\
+\cf2 \strokec2 -\cf5 \strokec5  MadMath blog: http://www.madmath.com/2009/05/winning-solitaire.html\
+\cf2 \strokec2 -\cf5 \strokec5  Wizard of Odds solitaire analysis: https://wizardofodds.com/games/solitaire/\
+\cf2 \strokec2 -\cf5 \strokec5  Solitaired.com aggregate stats (millions of games)\
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Suggested Execution Order
+\f1\b0 \cf5 \strokec5 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \strokec2 1.\cf5 \strokec5  \uc0\u9989  Research complete (this document)\
+\cf2 \strokec2 2.\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Clone Lonelybot \uc0\u8594  build \u8594  run draw-1 Thoughtful mode (100K games)\cf2 \strokec2 **\cf5 \strokec5 \
+\cf2 \strokec2 3.\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Run Lonelybot HOP/MCTS on draw-1 (10K\'9650K games)\cf2 \strokec2 **\cf5 \strokec5 \
+\cf2 \strokec2 4.\cf5 \strokec5  If MCTS shows >50%: investigate further, build heuristic player, assess platform risk\
+\cf2 \strokec2 5.\cf5 \strokec5  If MCTS shows <50%: game is confirmed -EV even for perfect AI play. Stop here unless you want to build the engine for fun/learning.\
+\cf2 \strokec2 6.\cf5 \strokec5  Build EV dashboard regardless (good portfolio project)\
+\
+\cf2 \strokec2 **\cf5 \strokec5 The single most important number to get is Lonelybot's HOP/MCTS win rate on draw-1 unlimited passes.\cf2 \strokec2 **\cf5 \strokec5  If that's below 50%, nothing else matters \'97 no human will beat the AI. If it's above 50%, the question becomes whether a human (potentially solver-assisted) can replicate it.\
+\pard\pardeftab720\partightenfactor0
+
+\f3\fs24 \cf9 \cb1 \strokec9 \
+\pard\pardeftab720\partightenfactor0
+
+\f4 \cf10 \strokec10 \
+\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f5\fs16\fsmilli8250 \cf10 \strokec10 markdown\
+
+\f0\b\fs18 \cf2 \strokec2 #\cf4 \strokec4  Klondike Solitaire Solver: 1xbet EV Analysis Project
+\f1\b0 \cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Objective
+\f1\b0 \cf5 \strokec5 \
+\
+Empirically determine the win rate of Klondike Solitaire under 1xbet's exact ruleset (draw-1, unlimited passes, no undo) to calculate whether the 2x payout creates a +EV opportunity. The breakeven win rate is 50%. Academic research suggests theoretical solvability is \cf2 \strokec2 ~\cf5 \strokec5 82-91% but practical imperfect-information play drops to \cf2 \strokec2 ~\cf5 \strokec5 33-53% depending on player/solver sophistication.\
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  1xbet Ruleset (Exact Rules to Implement)
+\f1\b0 \cf5 \strokec5 \
+\
+\cf2 \strokec2 -\cf5 \strokec5  Standard 52-card deck\
+\cf2 \strokec2 -\cf5 \strokec5  7 tableau columns (1 to 7 cards each), top card face up, rest face down\
+\cf2 \strokec2 -\cf5 \strokec5  4 foundation piles, built up by suit from Ace to King\
+\cf2 \strokec2 -\cf5 \strokec5  Draw 1 card at a time from stock pile\
+\cf2 \strokec2 -\cf5 \strokec5  Unlimited passes through the stock (can cycle as many times as needed)\
+\cf2 \strokec2 -\cf5 \strokec5  Tableau building: descending order, alternating colors\
+\cf2 \strokec2 -\cf5 \strokec5  Can move single cards or valid sequences between columns\
+\cf2 \strokec2 -\cf5 \strokec5  Only Kings can fill empty tableau columns\
+\cf2 \strokec2 -\cf5 \strokec5  No undo functionality\
+\cf2 \strokec2 -\cf5 \strokec5  No hints\
+\cf2 \strokec2 -\cf5 \strokec5  Win condition: all 52 cards moved to foundations\
+\cf2 \strokec2 -\cf5 \strokec5  Payout: 2x on win (bet $1, get $2 back), lose $1 on loss\
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Phase 1: Fork & Configure Lonelybot (Rust Solver)
+\f1\b0 \cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  What
+\f1\b0 \cf5 \strokec5 \
+Lonelybot is the current state-of-the-art Klondike solver. Written in Rust, MIT licensed.\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Repository
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 URL\cf2 \strokec2 **\cf5 \strokec5 : https://github.com/vuonghy2442/lonelybot\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Language\cf2 \strokec2 **\cf5 \strokec5 : Rust\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 License\cf2 \strokec2 **\cf5 \strokec5 : MIT\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Setup Steps
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 1.\cf5 \strokec5  Clone the repo: \cf6 \strokec6 `git clone https://github.com/vuonghy2442/lonelybot.git`\cf5 \strokec5 \
+\cf2 \strokec2 2.\cf5 \strokec5  Install Rust toolchain if needed: \cf6 \strokec6 `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`\cf5 \strokec5 \
+\cf2 \strokec2 3.\cf5 \strokec5  Build: \cf6 \strokec6 `cd lonelybot && cargo build --release`\cf5 \strokec5 \
+\cf2 \strokec2 4.\cf5 \strokec5  The CLI wrapper is in \cf6 \strokec6 `lonecli/`\cf5 \strokec5 : \cf6 \strokec6 `cd lonecli && cargo run --release -- help`\cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Configuration for 1xbet Rules
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  Set draw count to 1 (draw-1)\
+\cf2 \strokec2 -\cf5 \strokec5  Set passes to unlimited\
+\cf2 \strokec2 -\cf5 \strokec5  Verify King-only-to-empty-column rule is enforced\
+\cf2 \strokec2 -\cf5 \strokec5  Confirm no undo in imperfect-info mode (this is the default for "Random" mode)\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Two Modes to Run
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 1.\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Thoughtful Mode\cf2 \strokec2 **\cf5 \strokec5  (perfect information): All cards visible. Gives the upper bound on solvability \'97 the % of deals that 
+\f2\i \cf2 \strokec2 *\cf5 \strokec5 have\cf2 \strokec2 *
+\f1\i0 \cf5 \strokec5  a winning solution.\
+\cf2 \strokec2 2.\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Random/HOP/MCTS Mode\cf2 \strokec2 **\cf5 \strokec5  (imperfect information): Hidden cards not visible to solver. Uses Hindsight Optimization + Monte Carlo Tree Search. This is the realistic best-case AI performance.\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Seed Types Available
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  \cf6 \strokec6 `default`\cf5 \strokec5 : Rust RNG\
+\cf2 \strokec2 -\cf5 \strokec5  \cf6 \strokec6 `legacy`\cf5 \strokec5 : Compatibility with older versions\
+\cf2 \strokec2 -\cf5 \strokec5  \cf6 \strokec6 `solvitaire`\cf5 \strokec5 : Re-implementation of Solvitaire random\
+\cf2 \strokec2 -\cf5 \strokec5  \cf6 \strokec6 `klondike-solver`\cf5 \strokec5 : Re-implementation of Klondike-Solver random\
+\cf2 \strokec2 -\cf5 \strokec5  \cf6 \strokec6 `greenfelt`\cf5 \strokec5 : Re-implementation of Greenfelt\
+\cf2 \strokec2 -\cf5 \strokec5  \cf6 \strokec6 `exact`\cf5 \strokec5 : 256-bit integer mapped to exact 52-card permutation\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Known Results (Draw-3, Unlimited Passes)
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  Thoughtful solvability: 81.95% \'b1 0.03% (5.9M games)\
+\cf2 \strokec2 -\cf5 \strokec5  Imperfect-info (HOP/MCTS): 47.58% \'b1 0.80% (15K games)\
+\cf2 \strokec2 -\cf5 \strokec5  Draw-1 results should be higher on both metrics but precise numbers need to be generated\
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Phase 2: Large-Scale Simulation Runs
+\f1\b0 \cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Run 1: Thoughtful Mode (Draw-1, Unlimited Passes)
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Goal\cf2 \strokec2 **\cf5 \strokec5 : Establish the upper bound \'97 what % of draw-1 deals are solvable with perfect play and perfect information\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Sample size\cf2 \strokec2 **\cf5 \strokec5 : 100,000+ games (more is better for tight confidence intervals)\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Expected result\cf2 \strokec2 **\cf5 \strokec5 : ~85-91% based on extrapolation from draw-3 data\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Command pattern\cf2 \strokec2 **\cf5 \strokec5 : \cf6 \strokec6 `cd lonecli && cargo run --release -- [thoughtful mode flags] --draw 1 --passes unlimited --games 100000`\cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Output\cf2 \strokec2 **\cf5 \strokec5 : Win count, loss count, solvability % with confidence interval\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Run 2: HOP/MCTS Imperfect-Info Mode (Draw-1, Unlimited Passes)
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Goal\cf2 \strokec2 **\cf5 \strokec5 : Determine the best achievable win rate when hidden cards are unknown (no undo, no peeking)\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Sample size\cf2 \strokec2 **\cf5 \strokec5 : 10,000-50,000 games (MCTS is slower per game \'97 a few seconds each)\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Expected result\cf2 \strokec2 **\cf5 \strokec5 : \cf2 \strokec2 ~\cf5 \strokec5 50-55% (extrapolating from 47.58% on draw-3)\
+- \cf2 \strokec2 **\cf5 \strokec5 THIS IS THE CRITICAL NUMBER\cf2 \strokec2 **\cf5 \strokec5 : If this is >50%, the game is theoretically +EV for a perfect AI. If <50%, the game is -EV even for the best possible player.\
+- \cf2 \strokec2 **\cf5 \strokec5 Time estimate\cf2 \strokec2 **\cf5 \strokec5 : At \cf2 \strokec2 ~\cf5 \strokec5 3 seconds/game, 50K games \uc0\u8776  42 hours on a single core. Parallelize if possible.\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Run 3: Vary Parameters for Sensitivity Analysis
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  Test with limited passes (1, 2, 3) to see how much unlimited passes matters\
+\cf2 \strokec2 -\cf5 \strokec5  Test draw-3 as a baseline comparison against published results\
+\cf2 \strokec2 -\cf5 \strokec5  Verify cross-compatibility with Solvitaire's published numbers using the solvitaire seed\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Data Collection
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  Log every game: seed, outcome (win/loss), number of moves, time taken\
+\cf2 \strokec2 -\cf5 \strokec5  Store as CSV for later analysis\
+\cf2 \strokec2 -\cf5 \strokec5  Calculate running statistics: win rate, 95% CI, cumulative EV\
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Phase 3: Build a Human-Like Heuristic Player
+\f1\b0 \cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Why
+\f1\b0 \cf5 \strokec5 \
+Lonelybot's MCTS does deep lookahead that no human can replicate during a timed game. We need a "strong human" simulation to estimate what a disciplined, skilled player actually achieves.\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Approach Option A: Adapt Existing Heuristic Solver
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Daniel Collins' SolitaireSolver\cf2 \strokec2 **\cf5 \strokec5  (Java, GPL): https://github.com/danielrcollins1/SolitaireSolver\
+  \cf2 \strokec2 -\cf5 \strokec5  Runs heuristic play over 100K games per ruleset\
+  \cf2 \strokec2 -\cf5 \strokec5  Already reports ~7.6% on draw-3 with 3 passes\
+  \cf2 \strokec2 -\cf5 \strokec5  Adapt to draw-1 unlimited passes\
+  \cf2 \strokec2 -\cf5 \strokec5  His results for draw-1 unlimited: need to check/run\
+\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Bill Turnbull's Solitaire Tester\cf2 \strokec2 **\cf5 \strokec5  (not open source but results published)\
+  \cf2 \strokec2 -\cf5 \strokec5  Reports 52.9-53.4% on draw-1 unlimited passes with optimized heuristics\
+  \cf2 \strokec2 -\cf5 \strokec5  This is the benchmark to try to match\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Approach Option B: Build Custom Python Heuristic Engine
+\f1\b0 \cf5 \strokec5 \
+Build a Python Klondike engine with pluggable strategy modules:\
+\
+\cf2 \strokec2 ```\cf5 \strokec5 \
+klondike/\
+\uc0\u9500 \u9472 \u9472  engine.py          # Core game state, legal move generation, card dealing\
+\uc0\u9500 \u9472 \u9472  strategies/\
+\uc0\u9474    \u9500 \u9472 \u9472  base.py        # Strategy interface\
+\uc0\u9474    \u9500 \u9472 \u9472  greedy.py      # Always play to foundation when possible\
+\uc0\u9474    \u9500 \u9472 \u9472  heuristic.py   # Weighted heuristic (see below)\
+\uc0\u9474    \u9492 \u9472 \u9472  mcts.py        # Simple MCTS for comparison\
+\uc0\u9500 \u9472 \u9472  simulator.py       # Run N games with a given strategy, collect stats\
+\uc0\u9500 \u9472 \u9472  analyzer.py        # EV calculations, confidence intervals, visualizations\
+\uc0\u9492 \u9472 \u9472  main.py            # CLI entry point\
+\cf2 \strokec2 ```\cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Heuristic Priority Rules (Based on Published Klondike Strategy Research)
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 1.\cf5 \strokec5  Always play Aces and Twos to foundation immediately\
+\cf2 \strokec2 2.\cf5 \strokec5  Prefer moves that reveal face-down cards\
+\cf2 \strokec2 3.\cf5 \strokec5  Prefer moves that free up tableau columns\
+\cf2 \strokec2 4.\cf5 \strokec5  Don't play cards to foundation if they're needed for tableau building (the "safe-to-play" rule: only send to foundation if both cards of the opposite color and one rank lower are already on foundations)\
+\cf2 \strokec2 5.\cf5 \strokec5  Prefer moving cards from larger piles\
+\cf2 \strokec2 6.\cf5 \strokec5  Among equal moves, prefer the one that increases the number of face-up cards\
+\cf2 \strokec2 7.\cf5 \strokec5  Only draw from stock when no beneficial tableau moves exist\
+\cf2 \strokec2 8.\cf5 \strokec5  When a column is empty, prefer moving Kings that expose face-down cards\
+\cf2 \strokec2 9.\cf5 \strokec5  Between two Kings for an empty column, prefer the one with more face-down cards behind it\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Sample Size
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  Run 100,000+ games per heuristic configuration\
+\cf2 \strokec2 -\cf5 \strokec5  Python will be slower than Rust but still manageable (estimate ~1-5 seconds/game depending on implementation)\
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Phase 4: EV Dashboard & Analysis
+\f1\b0 \cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Core EV Calculation
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 ```\cf5 \strokec5 \
+EV per unit bet = (win_rate \'d7 2) - 1\
+\
+Examples:\
+- 33% win rate: (0.33 \'d7 2) - 1 = -0.34 (lose $0.34 per $1 bet)\
+- 43% win rate: (0.43 \'d7 2) - 1 = -0.14 (lose $0.14 per $1 bet)  \
+- 50% win rate: (0.50 \'d7 2) - 1 =  0.00 (breakeven)\
+- 53% win rate: (0.53 \'d7 2) - 1 = +0.06 (profit $0.06 per $1 bet)\
+\cf2 \strokec2 ```\cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Hourly Rate Calculation
+\f1\b0 \cf5 \strokec5 \
+Even if marginally +EV, time cost matters:\
+\cf2 \strokec2 ```\cf5 \strokec5 \
+hourly_ev = (ev_per_bet \'d7 bet_size \'d7 games_per_hour)\
+\
+Example at 53% win rate, $10 bet, 6 games/hour (10 min/game):\
+hourly_ev = 0.06 \'d7 10 \'d7 6 = $3.60/hour\
+\
+Example at 43% win rate, $10 bet, 6 games/hour:\
+hourly_ev = -0.14 \'d7 10 \'d7 6 = -$8.40/hour\
+\cf2 \strokec2 ```\cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Variance & Risk of Ruin Analysis
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  Klondike is a binary outcome (win/lose) \'97 model as Bernoulli trials\
+\cf2 \strokec2 -\cf5 \strokec5  Calculate bankroll requirements for a given risk of ruin\
+\cf2 \strokec2 -\cf5 \strokec5  Standard deviation per game = sqrt(p \'d7 (1-p))\
+\cf2 \strokec2 -\cf5 \strokec5  For 53% edge: SD per game \uc0\u8776  0.499, very high variance relative to tiny edge\
+\cf2 \strokec2 -\cf5 \strokec5  Kelly criterion for optimal bet sizing: f* = (bp - q) / b where b=1 (net odds), p=win rate, q=1-p\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Deliverables
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  Summary table of win rates by solver type\
+\cf2 \strokec2 -\cf5 \strokec5  EV at various bet sizes\
+\cf2 \strokec2 -\cf5 \strokec5  Hourly rate projections\
+\cf2 \strokec2 -\cf5 \strokec5  Bankroll requirement for 1% risk of ruin\
+\cf2 \strokec2 -\cf5 \strokec5  Comparison to slot RTPs (industry average 93-97%, this game's effective RTP = win_rate \'d7 200%)\
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Phase 5: Additional Investigations
+\f1\b0 \cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Is the 1xbet Shuffle Fair?
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  1xbet operates under a Cura\'e7ao license with no mandated independent RNG testing\
+\cf2 \strokec2 -\cf5 \strokec5  Their solitaire is a proprietary "1xGames" title, not from a third-party audited provider\
+\cf2 \strokec2 -\cf5 \strokec5  There is no way to verify shuffle randomness from outside\
+\cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 Possible test\cf2 \strokec2 **\cf5 \strokec5 : Play a large number of games and record every dealt card sequence. Run statistical tests (chi-squared, runs test, etc.) to check for non-random patterns. This requires building a card-reading overlay or manually logging deals.\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  Could an Automated Player Be Built?
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  Stephen Mayhew's SolitaireSolver (Python + OpenCV): https://github.com/mayhewsw/SolitaireSolver\
+  \cf2 \strokec2 -\cf5 \strokec5  Uses image recognition to read cards from screen\
+  \cf2 \strokec2 -\cf5 \strokec5  Controls mouse to make moves\
+  \cf2 \strokec2 -\cf5 \strokec5  Could theoretically be adapted to play 1xbet's web interface\
+  \cf2 \strokec2 -\cf5 \strokec5  \cf2 \strokec2 **\cf5 \strokec5 CAUTION\cf2 \strokec2 **\cf5 \strokec5 : This would likely violate 1xbet's terms of service and could result in account banning and forfeiture of funds. Automated play is almost universally prohibited on gambling platforms.\
+\
+
+\f0\b \cf2 \strokec2 ###\cf4 \strokec4  RL/ML Approach
+\f1\b0 \cf5 \strokec5 \
+\cf2 \strokec2 -\cf5 \strokec5  Train a reinforcement learning agent on the Klondike engine\
+\cf2 \strokec2 -\cf5 \strokec5  State space: card positions (known and unknown)\
+\cf2 \strokec2 -\cf5 \strokec5  Action space: all legal moves\
+\cf2 \strokec2 -\cf5 \strokec5  Reward: +1 for win, -1 for loss (or shaped reward based on cards sent to foundation)\
+\cf2 \strokec2 -\cf5 \strokec5  Could potentially exceed heuristic performance\
+\cf2 \strokec2 -\cf5 \strokec5  Libraries: Stable Baselines3, RLlib\
+\cf2 \strokec2 -\cf5 \strokec5  This is a longer-term project but could yield the most accurate "best achievable human-like" win rate\
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Key Open-Source Resources
+\f1\b0 \cf5 \strokec5 \
+\
+\cf2 \strokec2 |
+\f0\b \cf4 \strokec4  Project 
+\f1\b0 \cf2 \strokec2 |
+\f0\b \cf4 \strokec4  Language 
+\f1\b0 \cf2 \strokec2 |
+\f0\b \cf4 \strokec4  License 
+\f1\b0 \cf2 \strokec2 |
+\f0\b \cf4 \strokec4  URL 
+\f1\b0 \cf2 \strokec2 |
+\f0\b \cf4 \strokec4  Best For 
+\f1\b0 \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |---------|----------|---------|-----|----------|\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  Lonelybot \cf2 \strokec2 |\cf5 \strokec5  Rust \cf2 \strokec2 |\cf5 \strokec5  MIT \cf2 \strokec2 |\cf5 \strokec5  https://github.com/vuonghy2442/lonelybot \cf2 \strokec2 |\cf5 \strokec5  SOTA solver, both Thoughtful and MCTS \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  MinimalKlondike \cf2 \strokec2 |\cf5 \strokec5  C++ \cf2 \strokec2 |\cf5 \strokec5  MIT \cf2 \strokec2 |\cf5 \strokec5  https://github.com/ShootMe/MinimalKlondike \cf2 \strokec2 |\cf5 \strokec5  Minimal-length solutions, cross-reference \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  Klondike-Solver \cf2 \strokec2 |\cf5 \strokec5  C++ \cf2 \strokec2 |\cf5 \strokec5  MIT \cf2 \strokec2 |\cf5 \strokec5  https://github.com/ShootMe/Klondike-Solver \cf2 \strokec2 |\cf5 \strokec5  Fast solving with configurable draw count \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  SolitaireSolver (Collins) \cf2 \strokec2 |\cf5 \strokec5  Java \cf2 \strokec2 |\cf5 \strokec5  GPL \cf2 \strokec2 |\cf5 \strokec5  https://github.com/danielrcollins1/SolitaireSolver \cf2 \strokec2 |\cf5 \strokec5  Heuristic play, large-scale simulation \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  SolitaireSolver (Mayhew) \cf2 \strokec2 |\cf5 \strokec5  Python \cf2 \strokec2 |\cf5 \strokec5  \'97 \cf2 \strokec2 |\cf5 \strokec5  https://github.com/mayhewsw/SolitaireSolver \cf2 \strokec2 |\cf5 \strokec5  Screen-reading + OpenCV automation \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  Solvitaire \cf2 \strokec2 |\cf5 \strokec5  C++ \cf2 \strokec2 |\cf5 \strokec5  GPL \cf2 \strokec2 |\cf5 \strokec5  (University of St Andrews) \cf2 \strokec2 |\cf5 \strokec5  Gold standard for Thoughtful solving \cf2 \strokec2 |\cf5 \strokec5 \
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Quick Reference: Known Win Rates
+\f1\b0 \cf5 \strokec5 \
+\
+\cf2 \strokec2 |
+\f0\b \cf4 \strokec4  Variant 
+\f1\b0 \cf2 \strokec2 |
+\f0\b \cf4 \strokec4  Player Type 
+\f1\b0 \cf2 \strokec2 |
+\f0\b \cf4 \strokec4  Win Rate 
+\f1\b0 \cf2 \strokec2 |
+\f0\b \cf4 \strokec4  Source 
+\f1\b0 \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |---------|-------------|----------|--------|\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  Draw-1, unlimited, no undo \cf2 \strokec2 |\cf5 \strokec5  Average human \cf2 \strokec2 |\cf5 \strokec5  ~33% \cf2 \strokec2 |\cf5 \strokec5  Solitaired.com (2.9M games) \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  Draw-1, unlimited, no undo \cf2 \strokec2 |\cf5 \strokec5  Skilled human \cf2 \strokec2 |\cf5 \strokec5  ~43% \cf2 \strokec2 |\cf5 \strokec5  Jupiter Scientific (442 games) \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  Draw-1, unlimited, no undo \cf2 \strokec2 |\cf5 \strokec5  Heuristic AI \cf2 \strokec2 |\cf5 \strokec5  ~53% \cf2 \strokec2 |\cf5 \strokec5  Bill Turnbull (10M games) \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  Draw-1, unlimited, no undo \cf2 \strokec2 |\cf5 \strokec5  MCTS AI \cf2 \strokec2 |\cf5 \strokec5  ~50-55%? \cf2 \strokec2 |\cf5 \strokec5  **NEEDS TO BE DETERMINED** \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  Draw-1, unlimited, with undo \cf2 \strokec2 |\cf5 \strokec5  Aggressive human \cf2 \strokec2 |\cf5 \strokec5  ~91% \cf2 \strokec2 |\cf5 \strokec5  Community reports \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  Draw-3, unlimited, no undo \cf2 \strokec2 |\cf5 \strokec5  Average human \cf2 \strokec2 |\cf5 \strokec5  ~11% \cf2 \strokec2 |\cf5 \strokec5  Solitaired.com (1.4M games) \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  Draw-3, unlimited, no undo \cf2 \strokec2 |\cf5 \strokec5  MCTS AI (Lonelybot) \cf2 \strokec2 |\cf5 \strokec5  47.58% \cf2 \strokec2 |\cf5 \strokec5  Lonelybot (15K games) \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  Draw-3, unlimited, Thoughtful \cf2 \strokec2 |\cf5 \strokec5  Perfect play \cf2 \strokec2 |\cf5 \strokec5  81.95% \cf2 \strokec2 |\cf5 \strokec5  Lonelybot (5.9M games) \cf2 \strokec2 |\cf5 \strokec5 \
+\cf2 \strokec2 |\cf5 \strokec5  Draw-1, unlimited, Thoughtful \cf2 \strokec2 |\cf5 \strokec5  Perfect play \cf2 \strokec2 |\cf5 \strokec5  ~85-91% \cf2 \strokec2 |\cf5 \strokec5  **NEEDS TO BE DETERMINED** \cf2 \strokec2 |\cf5 \strokec5 \
+\
+\cf2 \strokec2 ---\cf5 \strokec5 \
+\
+
+\f0\b \cf2 \strokec2 ##\cf4 \strokec4  Bottom Line
+\f1\b0 \cf5 \strokec5 \
+\
+The critical unknown is the \cf2 \strokec2 **\cf5 \strokec5 draw-1 imperfect-info MCTS win rate\cf2 \strokec2 **\cf5 \strokec5 . If Lonelybot achieves >50% on draw-1 unlimited passes without perfect information, then the game is theoretically beatable by a superhuman AI \'97 but the practical question becomes whether a human (or human-assisted tool) can replicate that performance in a live 1xbet session without violating ToS. If the MCTS rate is <50%, the game is definitively -EV for everyone and the casino profits purely from the information asymmetry inherent in face-down cards.\
+\
+\cf2 \strokec2 **\cf5 \strokec5 Priority order:\cf2 \strokec2 **\cf5 \strokec5 \
+\cf2 \strokec2 1.\cf5 \strokec5  Get Lonelybot running on draw-1 unlimited passes\
+\cf2 \strokec2 2.\cf5 \strokec5  Run Thoughtful mode (100K+ games) \uc0\u8594  upper bound\
+\cf2 \strokec2 3.\cf5 \strokec5  Run MCTS mode (10K+ games) \uc0\u8594  realistic AI ceiling\
+\cf2 \strokec2 4.\cf5 \strokec5  Build heuristic player \uc0\u8594  estimate strong human performance\
+\cf2 \strokec2 5.\cf5 \strokec5  Calculate EV, hourly rate, bankroll requirements\
+\cf2 \strokec2 6.\cf5 \strokec5  Decide if worth pursuing further
+\fs21 \
+\pard\pardeftab720\partightenfactor0
+
+\f4\fs24 \cf10 \strokec10 \
+\pard\pardeftab720\partightenfactor0
+\cf9 \cb3 \strokec9 \
+\pard\pardeftab720\partightenfactor0
+\cf9 \cb1 \
+\pard\pardeftab720\partightenfactor0
+\cf9 \cb3 \
+}

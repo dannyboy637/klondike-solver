@@ -1,0 +1,38 @@
+# Build artifacts
+lonelybot/target/
+klondike-env/target/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Training data & checkpoints (too large for git)
+data/
+checkpoints/
+logs/
+*.npy
+*.npz
+*.pt
+*.pth
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Rust
+Cargo.lock
+
+# Maturin build
+klondike_env/*.so
+klondike_env/*.dylib
+klondike_env/*.pyd

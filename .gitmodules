@@ -1,0 +1,3 @@
+[submodule "lonelybot"]
+	path = lonelybot
+	url = https://github.com/vuonghy2442/lonelybot.git
