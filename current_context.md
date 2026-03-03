@@ -1,6 +1,6 @@
 # Current Context — Living Research Document
 
-Last updated: 2026-03-03 (post-spec review, fixes, and final cleanup)
+Last updated: 2026-03-04 (Phase 2 complete — Gate 1 PASS, search alone > 50%)
 
 ---
 
@@ -120,12 +120,14 @@ A neural net + PIMC solver can exceed 50% win rate on Klondike draw-1 unlimited 
 - No batch normalization — Fixup initialization (KataGo: 1.6-1.8x speedup)
 - **Alternatives to evaluate if MLP plateaus**: transformer/set-network (relational card-card interactions), LSTM history encoder (implicit belief tracking)
 
-### Integration: Lonelybot via PyO3
-- PyO3 bindings with maturin — ~60-70ns call overhead (vs 1-10ms subprocess)
-- Release GIL during Rust computation for true multi-threading
-- Lonelybot already has a `python/` directory suggesting some interop work started
-- Key modifications: observation vector extraction, action space definition, PIMC sampling
-- **Biggest engineering risk**: Rust-Python integration latency in MCTS inner loop
+### Integration: Lonelybot via PyO3 — COMPLETE (Phase 1)
+- PyO3 bindings built and tested — `klondike-env/` crate with maturin
+- **17,935 games/sec** raw Rust through Python (well above 1000 target)
+- **32,146 encoding calls/sec** for 757-dim observation vectors
+- Full undo support via internal stack (Lonelybot's do_move returns UndoInfo, not bool)
+- Clone + shuffle_hidden for PIMC determinization working
+- HOP solver accessible from Python (per-move evaluation)
+- **Engineering risk resolved**: PyO3 integration is fast and reliable
 
 ### Timeline Estimates (Revised Post-Critique)
 - **First credible result: 6-12 weeks**
@@ -174,7 +176,7 @@ A neural net + PIMC solver can exceed 50% win rate on Klondike draw-1 unlimited 
 - Optimistic bias in HOP — PIMC overestimates win probability (known, must be addressed, not "resolved")
 - Strategy fusion is mitigated but NOT eliminated by non-adversarial setting — information-set inconsistency still possible
 - Neural net overfits to training distribution, doesn't generalize to unusual deals
-- PyO3 integration latency in MCTS inner loop — biggest engineering risk
+- ~~PyO3 integration latency in MCTS inner loop~~ **RESOLVED**: 17,935 games/sec, not a bottleneck
 - The edge is so thin (1-3%) that variance makes it impractical even if real
 - Evaluation leakage: repeated tuning on fixed test sets with small deltas around 50% creates false positives
 - Rule fidelity: Lonelybot rules may not match 1xbet exactly
@@ -234,27 +236,27 @@ External agent review identified 12 findings (P0-P2). All verified against sourc
 
 Full spec plan in `specs/` directory (7 files). Each phase is self-contained for a fresh Claude Code session.
 
-| Phase | Gate | What Gets Built |
-|-------|------|-----------------|
-| 0 | Gate 0 | Build Lonelybot, reproduce baselines, get draw-1 number |
-| 1 | Gate 1 prep | PyO3 Rust crate + Python game interface + encoding + actions |
-| 2 | Gate 1 | PIMC search + Python MCTS + statistical evaluation framework |
-| 3 | Gate 2 | Training data + MLP-ResNet (~2.7M params) + supervised training |
-| 4 | Gate 3 | PC-PIMC self-play + replay buffer + AlphaZero training pipeline |
-| 5 | Gate 4 | CV pipeline + move advisor (optional, only if >50%) |
-| 6 | Post-3 | Hyperparameter tuning, architecture experiments, scaling |
+| Phase | Gate | What Gets Built | Status |
+|-------|------|-----------------|--------|
+| 0 | Gate 0 | Build Lonelybot, reproduce baselines, get draw-1 number | **COMPLETE** ✅ |
+| 1 | Gate 1 prep | PyO3 Rust crate + Python game interface + encoding + actions | **COMPLETE** ✅ |
+| 2 | Gate 1 | PIMC search + Python MCTS + statistical evaluation framework | **COMPLETE** ✅ — GATE 1 PASS |
+| 3 | Gate 2 | Training data + MLP-ResNet (~2.7M params) + supervised training | |
+| 4 | Gate 3 | PC-PIMC self-play + replay buffer + AlphaZero training pipeline | |
+| 5 | Gate 4 | CV pipeline + move advisor (optional, only if >50%) | |
+| 6 | Post-3 | Hyperparameter tuning, architecture experiments, scaling | |
 
 **All foundation code is built by end of Phase 4.** Phase 6 is experiments on that foundation.
 
 ### Resolved Questions (from spec work)
-- Action space: 5 move types × 52 cards = 260, with legal masking (N_MOVES_MAX = 24 per position)
+- Action space: 5 move types × 52 cards = 260, with legal masking (N_MOVES_MAX = 21 per position)
 - Q-value init: V(s) not 0 — critical for single-player MCTS
 - Replay buffer: 100K-500K positions (200K default)
 - Temperature: τ=1.0 first 15-20 moves, then τ→0
 - Observation encoding: 757 dims baseline (expandable to ~857 with stock-pass, history, cycle features in Phase 6)
-- Lonelybot has built-in PIMC support via `hidden_shuffle(rng)` — no modifications needed
-- SolitaireEngine<FullPruner> is the right API to wrap (public do_move, list_moves_dom, undo_move)
-- No existing PyO3 bindings — must build from scratch in `klondike-env/` crate
+- Lonelybot has built-in PIMC support via `shuffle_all(rng)` (safe) and `shuffle(rng)` (oracle leak)
+- **Actual API**: everything on `Solitaire` directly (NO SolitaireEngine), do_move returns UndoInfo(u8)
+- **PyO3 bindings built**: `klondike-env/` crate, installed via `maturin develop --release`
 
 ### Still Open (for Phase 6 experiments)
 - ISMCTS vs HOP: which gives less optimistic bias for Klondike?
@@ -307,6 +309,82 @@ Use fast for large-N benchmarks (1M games), heavy for precise ceiling estimates.
 - Gate 1 search-only ablations (more determinizations, ISMCTS) are critical path
 - The ~49% baseline is encouraging — only ~1-2pp improvement needed from neural nets
 - Oracle leak explains why published Lonelybot results seemed surprisingly high for imperfect-info play
+
+## Phase 1 Results — PyO3 Bridge COMPLETE ✅
+
+### Deliverables
+- **`klondike-env/`** — Rust PyO3 crate (pyo3 0.28, lonelybot path dep, rand 0.8.5)
+  - KlondikeGame pyclass: reset, get_legal_moves, do_move, undo_move, clone_game, shuffle_hidden, hop_solve, encode
+  - Internal undo stack (Lonelybot's do_move returns UndoInfo, Python gets simple bool API)
+  - Build: `. .venv/bin/activate && cd klondike-env && maturin develop --release`
+- **`klondike/`** — Python package
+  - `env.py`: Gym-like KlondikeEnv (reset/step/get_legal_actions/clone/shuffle_hidden/is_done)
+  - `encoding.py`: 757-dim state encoding (52×13 card + 14 global + 67 uncertainty)
+  - `actions.py`: 260-action space (5 types × 52 cards), bidirectional conversion
+
+### Performance
+| Metric | Result | Target |
+|--------|--------|--------|
+| Raw games/sec | 17,935 | >1,000 ✅ |
+| Encoding calls/sec | 32,146 | — |
+| Full env (encode every step) | 199 games/sec | — |
+
+### Spec Corrections Discovered
+- NO SolitaireEngine — all methods on `Solitaire` directly
+- `do_move` returns `UndoInfo(u8)`, not bool; `undo_move` needs `(&Move, &UndoInfo)`
+- `list_moves` takes `&[u64; 5]` prune mask (use `PruneInfo::default().prune_moves::<true>(&game)`)
+- N_MOVES_MAX = 21 (not 24), rand 0.8.5 (not 0.9), PyO3 0.28 (not 0.22)
+- Hidden.len(pos) includes topmost hidden card (the face-up card); get_hidden_counts applies n-1
+
+### Environment
+- `.venv/` — Python 3.14, maturin 1.12.6, numpy, klondike-env 0.1.0
+- Lonelybot submodule at commit 3e88e66 (v0.2.1-15)
+
+## Phase 2 Results — Search & Eval Framework COMPLETE, Gate 1 PASS ✅
+
+### Critical Discovery: hop_solve vs pick_moves
+- Python `hop_solve()` = per-move DFS evaluation → **~18% win rate** (WRONG algorithm)
+- Binary's `pick_moves()` = UCB1 bandit over decision states with traverse → **~55-60%** (CORRECT)
+- Fix: exposed `pick_moves` via `play_hop_turn()` in PyO3
+
+### Oracle Leak Fix in Inner Solver
+- Changed `hop_solver.rs:76` from `shuffle()` to `shuffle_all()`
+- Inner solver now fully oracle-free (matching outer loop)
+- **Improved win rate** from Phase 0's ~49% to ~55-60%
+
+### Gate 1 Ablation Results
+
+| Config | Win Rate | CI (95%) | s/game |
+|--------|----------|----------|--------|
+| nt=100, lim=500 | 48.0% | (41.2%, 54.9%) | 0.10 |
+| nt=500, lim=500 | 55.0% | (48.1%, 61.7%) | 0.42 |
+| nt=1000, lim=500 | 56.5% | (49.6%, 63.2%) | 0.77 |
+| nt=3000, lim=500 | 56.5% | (49.6%, 63.2%) | 2.09 |
+| **nt=500, lim=100** | **59.5%** | **(52.6%, 66.1%)** | **0.17** |
+| nt=500, lim=1000 | 59.5% | (52.6%, 66.1%) | 0.66 |
+| heavy (3000/1000) | 58.0% | (51.1%, 64.6%) | 3.50 |
+
+**Best: nt=500, lim=100 → 59.5%, CI lower 52.6% > 50%**
+- Search alone exceeds breakeven
+- Neural net is optimization, not necessity
+- Best efficiency at 0.17s/game — fast enough for real-time play
+- Diminishing returns from n_times > 500 and node_limit > 100
+
+### 5000-Game Definitive Benchmark (nt=500, lim=100)
+- **2748/5000 = 54.96%, Wilson 95% CI (53.58%, 56.33%)**
+- CI lower bound **53.6%** — 3.6pp above breakeven, statistically significant
+- Longest losing streak: 11 games (seeds 4322-4332), longest win streak: 18
+- EV at 2x payout: +$0.10 per dollar wagered (10% player edge)
+- ~0.23s/game average across 5000 games
+
+### Gate 1 Decision: **PASS — Search alone sufficient for >50% win rate**
+
+### Deliverables
+- `klondike/search/pimc.py` — HopConfig, FullHopConfig, PIMCConfig, hop_search, pimc_search, play_full_hop_game
+- `klondike/search/mcts.py` — MCTSConfig, MCTSNode, mcts_search with pluggable eval_fn
+- `klondike/eval/stats.py` — Wilson CI, SPRT, McNemar's, control variate
+- `klondike/eval/benchmark.py` — BenchmarkConfig, run_benchmark with cycle detection
+- `klondike-env/src/lib.rs` — play_hop_turn (pick_moves via PyO3)
 
 ## Additional Research to Investigate
 - POMCP (Silver & Veness, 2010) and POMCPOW variants

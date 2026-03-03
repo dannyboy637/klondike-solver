@@ -1,0 +1,13 @@
+[package]
+name = "klondike-env"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "klondike_env"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.28", features = ["extension-module"] }
+lonelybot = { path = "../lonelybot" }
+rand = { version = "0.8.5", features = ["small_rng"] }

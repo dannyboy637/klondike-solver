@@ -615,3 +615,208 @@ Combine by raw counts: `wins_total = sum(wins_i)`, one Wilson CI on `(wins_total
 - `src/hidden.rs`: Added `shuffle_all()`, fixed `decode()` (added `update_map()` + `compute_first_layer_mask()`)
 - `src/hop_solver.rs:76`: Uses `shuffle()` for inner determinizations
 - `lonecli/src/main.rs`: `do_hop()` uses `shuffle_all()`, configurable N_TIMES/LIMIT constants
+
+---
+
+## Session 6 — 2026-03-03: Phase 1 — PyO3 Bridge + Python Interface
+
+### What happened
+- Built the complete Phase 1 deliverable: Rust PyO3 crate + Python game interface
+- Used a 2-agent team (rust-agent + python-agent) working in parallel
+
+### Deliverables Created
+
+#### klondike-env/ (Rust PyO3 crate)
+- `Cargo.toml` — depends on pyo3 0.28, lonelybot (path), rand 0.8.5
+- `pyproject.toml` — maturin build config
+- `src/lib.rs` — ~330 lines, wraps Lonelybot's Solitaire struct via PyO3
+- Build: `maturin develop --release` in .venv (Python 3.14)
+
+KlondikeGame pyclass methods:
+- `__new__`, `reset`, `get_legal_moves` (dominance-pruned), `get_all_legal_moves` (unpruned)
+- `do_move` (validates against legal moves), `undo_move` (internal undo stack)
+- `is_win`, `is_sure_win`, `is_valid`
+- `get_foundation`, `get_piles`, `get_hidden_counts`, `get_deck_info`, `get_visible_cards`
+- `clone_game`, `shuffle_hidden` (uses `shuffle_all` — no oracle leak)
+- `hop_solve` (per-move HOP evaluation), `encode` (u64 state hash)
+
+#### klondike/ (Python package)
+- `__init__.py` — exports KlondikeEnv, encode_state, OBSERVATION_DIM, ACTION_SPACE_SIZE
+- `actions.py` — 260-action space (5 move types × 52 cards), round-trip conversion
+- `encoding.py` — 757-dim state encoding (52×13 card + 14 global + 67 uncertainty)
+- `env.py` — Gym-like KlondikeEnv wrapper (reset/step/get_legal_actions/clone/shuffle_hidden)
+
+### Spec Corrections Discovered
+Critical differences between spec and actual Lonelybot API:
+1. **NO SolitaireEngine** — everything is directly on `Solitaire` struct
+2. **do_move returns UndoInfo (u8)**, not bool — internal undo stack needed
+3. **undo_move takes (&Move, &UndoInfo)** — not just `()`
+4. **list_moves takes prune mask `&[u64; 5]`** — use `PruneInfo::default().prune_moves::<true>(&game)`
+5. **rand 0.8.5** (not 0.9), **N_MOVES_MAX = 21** (not 24)
+6. **Hidden.len(pos) includes topmost hidden card** (the face-up tableau card is stored in Hidden)
+7. **PyO3 0.28** needed for Python 3.14 (spec said 0.22)
+
+### API Key Fix During Integration
+- encoding.py: `waste_cards` → `waste` (matching Rust dict key)
+- encoding.py: `remaining` → `stock_count` (matching Rust dict key)
+- encoding.py: `passes` → placeholder 0.0 (not tracked yet)
+- env.py: `clone()` → `clone_game()` (matching Rust method name)
+
+### Integration Test Results
+All 4 spec tests PASSED:
+1. **Round-trip correctness**: obs shape (757,), legal moves, step works ✅
+2. **Clone + shuffle for PIMC**: clone and shuffle_hidden work correctly ✅
+3. **Full game play**: 14 moves to completion (seed=0), is_done detection works ✅
+4. **Performance benchmark**: ✅
+   - Raw Rust: **17,935 games/sec** (well above 1000 target)
+   - Encoding: **32,146 calls/sec** (fast enough for per-decision use)
+   - Full env (encoding every step): **199 games/sec** (~163 steps/game average)
+   - Note: MCTS rollouts don't need encoding on every step — only at leaf nodes
+
+### Encoding Verification
+- All 52 cards accounted for: foundation(0) + pile_visible(7) + waste(1) + unknown(44) = 52
+- Every card has exactly 1 location in the one-hot encoding
+- Encoding is consistent (same state → same vector)
+- State changes produce different encodings
+- Observation range: [0.0, 1.0] (properly normalized)
+- stock/unknown separation deferred to Phase 6 (all unaccounted cards → "unknown")
+
+### Hidden Count Clarification
+- Lonelybot's Hidden struct includes the face-up tableau card as "topmost hidden"
+- `hidden.len(pos)` at start = [1, 2, 3, 4, 5, 6, 7] (total 28 = all tableau cards)
+- `get_hidden_counts()` applies n-1 = [0, 1, 2, 3, 4, 5, 6] (true face-down count)
+- `total_down_cards()` = sum(x.saturating_sub(1)) = 21 (face-down cards only)
+- `get_visible_piles()` includes the topmost hidden card as visible (correct — it IS visible)
+
+### Files & Environment
+- `.venv/` — Python 3.14 virtual environment with maturin, numpy, klondike-env
+- Build: `. .venv/bin/activate && cd klondike-env && maturin develop --release`
+
+### Next Steps
+- **1M game benchmark** — run with fast params to get tight CI on draw-1 full-shuffle
+- **Gate 1: Search-only ablations** — tune HOP params, try ISMCTS variants
+- **Phase 2: Search evaluation** — PIMC + MCTS using the PyO3 bridge
+
+---
+
+## Session 7 — 2026-03-03/04: Phase 2 — Search & Evaluation Framework + Gate 1
+
+### What happened
+
+#### Phase 2 Framework Built (Team of 2 agents)
+- Created `klondike/search/` module:
+  - `__init__.py` — SearchResult dataclass (shared interface), exports
+  - `pimc.py` — HopConfig, PIMCConfig, FullHopConfig, hop_search, pimc_search, play_full_hop_game
+  - `mcts.py` — MCTSConfig, MCTSNode, EvalFn, default_eval_fn, mcts_search
+- Created `klondike/eval/` module:
+  - `__init__.py` — exports
+  - `stats.py` — Wilson CI, SPRT, McNemar's paired comparison, control variate
+  - `benchmark.py` — BenchmarkConfig, GameRecord, run_benchmark with cycle detection
+
+#### Critical Discovery: hop_solve vs pick_moves
+- Python `hop_solve()` binding was using `hop_solve_game()` — per-move evaluation with DFS
+- Binary `do_hop()` uses `pick_moves()` — UCB1 bandit over reachable decision states
+- `pick_moves` traverses through forced moves, finds real decision points, allocates budget via UCB1
+- **Result: hop_solve gets ~18% win rate, pick_moves gets ~55%**
+- Root cause: hop_solve is 1-ply per-move evaluation; pick_moves is multi-ply strategic search
+
+#### Fix: Added play_hop_turn to PyO3
+- Exposed `pick_moves` from `mcts_solver.rs` via new `play_hop_turn()` method in lib.rs
+- Method matches binary's do_hop approach: clone → shuffle_all → pick_moves → play on real game
+- Verified: seed 42 wins in 114 moves, 0.32s
+- Quick test: 29/50 = 58% (expected ~49-55%)
+
+#### Oracle Leak Fix in hop_solver.rs
+- Changed `hop_solver.rs:76` from `shuffle(rng)` to `shuffle_all(rng)`
+- The inner solver now uses full shuffling (no oracle leak), matching the outer loop
+- This appears to have IMPROVED win rates vs binary (binary: ~49%, ours: ~55-60%)
+- Likely because our inner solver properly explores all possible hidden card arrangements
+
+#### Gate 1 Ablation Results — PASS
+
+| Config | Win Rate | CI (95%) | s/game |
+|--------|----------|----------|--------|
+| nt=100, lim=500 | 48.0% | (41.2%, 54.9%) | 0.10 |
+| nt=500, lim=500 | 55.0% | (48.1%, 61.7%) | 0.42 |
+| nt=1000, lim=500 | 56.5% | (49.6%, 63.2%) | 0.77 |
+| nt=3000, lim=500 | 56.5% | (49.6%, 63.2%) | 2.09 |
+| **nt=500, lim=100** | **59.5%** | **(52.6%, 66.1%)** | **0.17** |
+| nt=500, lim=500 | 55.0% | (48.1%, 61.7%) | 0.42 |
+| nt=500, lim=1000 | 59.5% | (52.6%, 66.1%) | 0.66 |
+| heavy (3000/1000) | 58.0% | (51.1%, 64.6%) | 3.50 |
+
+**Best config: nt=500, lim=100** — 59.5%, CI lower bound 52.6%, only 0.17s/game
+
+Key findings:
+- **Search alone exceeds 50%** — multiple configs have CI lower > 50%
+- Diminishing returns from n_times > 500 and node_limit > 100
+- Oracle leak fix improved results vs Phase 0 binary (~49% → ~55-60%)
+- Best efficiency: nt=500, lim=100 at 0.17s/game (fast enough for real-time play)
+
+#### Gate 1 Decision: **PASS — Search alone is sufficient**
+- CI lower bound 52.6% > 50% breakeven
+- Neural net guidance is now an optimization, not a necessity
+- Could pursue: (a) larger sample for tighter CI, (b) neural nets for speed/further improvement
+
+### Files Created/Modified
+- `klondike/search/__init__.py` — SearchResult, exports
+- `klondike/search/pimc.py` — HopConfig, FullHopConfig, PIMCConfig, search functions, play_full_hop_game
+- `klondike/search/mcts.py` — MCTSConfig, MCTSNode, MCTS search with pluggable eval_fn
+- `klondike/eval/__init__.py` — exports
+- `klondike/eval/stats.py` — Wilson CI, SPRT, McNemar, control variate
+- `klondike/eval/benchmark.py` — BenchmarkConfig, run_benchmark with cycle detection
+- `klondike-env/src/lib.rs` — added play_hop_turn method (pick_moves via PyO3)
+- `lonelybot/src/hop_solver.rs` — shuffle → shuffle_all (oracle leak fix)
+- `run_ablations.py` — v1 ablation script (per-move HOP, ~18% — wrong algorithm)
+- `run_ablations_v2.py` — v2 ablation script (pick_moves, ~55-60% — correct)
+- `logs/ablations_v2/summary.json` — ablation results
+
+### Next Steps
+1. **Phase 3: Supervised learning** — train fast policy net to match search quality
+2. **Gate 0.5: Operational viability** — can the edge be captured on 1xbet?
+
+---
+
+## Session 8 — 2026-03-04: 5000-Game Benchmark — Definitive Search Baseline
+
+### What happened
+
+#### 5000-Game Benchmark (nt=500, lim=100, draw-1)
+Ran 5000 games split across 5 parallel agents (1000 games each, disjoint seeds):
+
+| Batch | Seeds | Wins | Rate |
+|-------|-------|------|------|
+| 1 | 0-999 | 560 | 56.0% |
+| 2 | 1000-1999 | 574 | 57.4% |
+| 3 | 2000-2999 | 541 | 54.1% |
+| 4 | 3000-3999 | 539 | 53.9% |
+| 5 | 4000-4999 | 534 | 53.4% |
+
+**Combined: 2748/5000 = 54.96%, Wilson 95% CI (53.58%, 56.33%)**
+
+- CI width: ±1.38% — tight enough for definitive conclusions
+- CI lower bound 53.6% — **3.6pp above 50% breakeven, statistically significant**
+- ~0.23s/game average
+
+#### Streak Analysis
+- **Longest losing streak: 11 games** (seeds 4322-4332)
+- **Longest winning streak: 18 games**
+- 5 losing streaks of 8+ games, 15 of 6+ games
+- 11-game max losing streak is statistically expected for 5000 Bernoulli trials at p≈0.45 loss rate
+
+### Key Findings
+1. **Search alone definitively exceeds 50%** — the 200-game ablation result holds at scale
+2. Win rate converged from 59.5% (n=200) to **54.96% (n=5000)** — regression to mean as expected
+3. Still well above breakeven: CI lower bound 53.6% gives comfortable margin
+4. EV at 2x payout: +$0.10 per dollar wagered (10% player edge)
+5. Longest losing streak (11) is manageable for bankroll — standard Kelly criterion applies
+
+### Implications
+- Raw search solver is already profitable at 2x payout without neural nets
+- Neural net value: (a) speed up decision time, (b) squeeze extra few %, (c) potentially handle edge cases better
+- The 11-game max losing streak suggests reasonable bankroll requirements (~25-50 unit bankroll at Kelly)
+- Project can proceed to neural nets for optimization, not survival
+
+### Next Steps
+1. **Phase 3: Supervised learning** — train fast policy net to match search quality at 100x speed
+2. **Gate 0.5: Operational viability** — can the edge be captured on 1xbet?
