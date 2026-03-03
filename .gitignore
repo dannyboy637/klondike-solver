@@ -36,3 +36,6 @@ Cargo.lock
 klondike_env/*.so
 klondike_env/*.dylib
 klondike_env/*.pyd
+
+# Compiled binaries (built from lonelybot)
+lonecli_*

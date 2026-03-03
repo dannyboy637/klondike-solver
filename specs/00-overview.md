@@ -102,7 +102,7 @@ solitaire/
 ├── klondike/                 # Python package (new)
 │   ├── __init__.py
 │   ├── env.py                # Game environment wrapper
-│   ├── encoding.py           # State encoding (~857 dims)
+│   ├── encoding.py           # State encoding (757 dims baseline)
 │   ├── actions.py            # Action space enumeration
 │   ├── search/
 │   │   ├── __init__.py
@@ -160,7 +160,7 @@ solitaire/
 | Lonelybot MCTS (draw-1) | **UNKNOWN — Phase 0 deliverable** |
 | Turnbull heuristic (draw-1, UNVERIFIED) | ~53% |
 | Breakeven at 2x payout | 50.0% |
-| State encoding dimensions | ~857 |
+| State encoding dimensions | 757 (baseline; ~857 with Phase 6 expansions) |
 | Action space size | 260 (5 move types × 52 cards, masked) |
 | Neural net parameters | ~2M |
 | MCTS sims/move (training) | 100-400 |

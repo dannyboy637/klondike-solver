@@ -149,7 +149,7 @@ class SelfPlayConfig:
     temperature_final: float = 0.05     # Then τ→0 (near-greedy)
     dirichlet_alpha: float = 0.3
     dirichlet_frac: float = 0.25
-    max_moves: int = 2000               # Safety limit
+    max_moves: int = 500                # Safety limit (real games rarely exceed 200)
     draw_step: int = 1
 
 
@@ -176,11 +176,18 @@ def self_play_game(
 
     move_count = 0
     start_time = time.perf_counter()
+    seen_states = set()  # State hash cycle detection
 
     while not env.is_done():
         legal = env.get_legal_action_list()
         if not legal:
             break
+
+        # Cycle detection: if we've seen this exact state before, we're looping
+        state_hash = env._game.encode()
+        if state_hash in seen_states:
+            break  # Treat as loss — cycling means no progress
+        seen_states.add(state_hash)
 
         # Temperature schedule
         if move_count < config.temperature_moves:
@@ -194,9 +201,9 @@ def self_play_game(
         eval_fn = _make_eval_fn(model, device)
 
         for d in range(config.n_determinizations):
-            # Clone + determinize hidden cards
+            # Clone + determinize hidden cards (deterministic seeding)
             det_env = env.clone()
-            det_env.shuffle_hidden(rng_seed=seed * 1000 + move_count * 100 + d)
+            det_env.shuffle_hidden(rng_seed=seed * 10000 + move_count * 100 + d)
 
             # Run MCTS on determinized state
             mcts_config = MCTSConfig(
@@ -286,8 +293,10 @@ def _make_eval_fn(model, device):
 import torch
 import torch.nn.functional as F
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from klondike.nn.model import KlondikeNet
+from klondike.env import KlondikeEnv
 from klondike.alphazero.buffer import ReplayBuffer
 from klondike.alphazero.selfplay import self_play_game, SelfPlayConfig
 from klondike.eval.stats import compute_ci
@@ -312,10 +321,13 @@ class PipelineConfig:
     buffer_capacity: int = 200_000
     min_buffer_size: int = 5000     # Don't train until this many positions
 
-    # Evaluation
+    # Evaluation — MODEL SELECTION set (disjoint from Phase 6 final test sets)
+    # Phase 6 test sets: A=1M-1.01M, B=2M-2.01M, C=3M-3.005M
+    # This set is ONLY for checkpoint selection during training. Do NOT use
+    # for final win rate claims — that's test_set_A in Phase 6.
     eval_every: int = 5             # Evaluate every N iterations
-    eval_games: int = 1000          # Games per evaluation
-    eval_seeds_start: int = 1_000_000  # Fixed eval seeds (separate from training)
+    eval_games: int = 1000          # Games per model-selection eval
+    eval_seeds_start: int = 5_000_000  # Disjoint from Phase 6 test sets
 
     # Checkpointing
     checkpoint_dir: str = "checkpoints/alphazero"
@@ -479,15 +491,22 @@ def _evaluate(model, device, n_games, seed_start, draw_step):
         eval_fn = _make_eval_fn(model, device)
 
         move_count = 0
+        seen_states = set()
         while not env.is_done():
             legal = env.get_legal_action_list()
             if not legal:
                 break
+            # Cycle detection
+            state_hash = env._game.encode()
+            if state_hash in seen_states:
+                break
+            seen_states.add(state_hash)
+
             policy, value = eval_fn(env)
             action = max(legal, key=lambda a: policy[a])
             env.step(action)
             move_count += 1
-            if move_count > 2000:
+            if move_count > 500:
                 break
 
         if env._game.is_win():
@@ -594,12 +613,22 @@ run_pipeline(config)
 
 ## Decision Gate
 
+**CI math note**: With eval_games=1000, the 95% CI at p=0.50 is ±3.1%. Getting
+CI lower bound >50% requires a point estimate of ~53%+. For thin margins (51-52%),
+use SPRT from `klondike/eval/stats.py` or increase eval games to 10K+ for the
+final gate check. The 1000-game eval during training is for tracking trends, not
+for final claims.
+
 | AlphaZero Draw-1 Result | Action |
 |-------------------------|--------|
-| **CI lower bound > 50%** | Success! The solver beats the house. Proceed to deployment if desired. |
-| **Win rate 49-51%, CI includes 50%** | Promising but inconclusive. Run more games for tighter CI. Tune hyperparameters. |
-| **Win rate 47-49%** | Better than search-only but not enough. Try more training, different architectures, ISMCTS. |
-| **Win rate ≤ search baseline** | Neural net isn't helping. Debug value head, check for data issues. |
+| **Point estimate > 52% on 1K games** | Very promising. Run 10K+ games on test_set_A (Phase 6) for definitive CI. |
+| **Point estimate 50-52% on 1K games** | Promising but need more data. Run SPRT on test_set_A. Tune hyperparameters (Phase 6). |
+| **Point estimate 47-50%** | Better than search-only but not enough yet. Try more training, different architectures, ISMCTS. |
+| **Point estimate ≤ search baseline** | Neural net isn't helping. Debug value head, check for data issues. |
+
+**Final claim protocol**: Use Phase 6's test_set_A (seeds 1M-1.01M, 10K games)
+for the definitive result. Confirm on test_set_B. Never use the model-selection
+eval set (seeds 5M+) for final claims.
 
 ---
 
@@ -616,14 +645,23 @@ Phase 5 (deployment) needs:
 
 ## Compute Estimates
 
+**Bottom-up per-game cost** (5 det × 200 sims × ~50 moves):
+- NN forward passes: 50,000 per game × ~0.1ms (GPU) = ~5s just inference
+- Env operations (clone, shuffle, do_move): ~5-10s per game
+- Python MCTS overhead (UCB, expand, backprop): ~5-10s per game
+- **Realistic total: ~20-60s per game** (NOT 5s — that was a top-down guess)
+
 | Component | Estimate |
 |-----------|----------|
-| Self-play (200 games/iter, ~5s/game) | ~17 min/iter |
+| Self-play (200 games/iter, ~30s/game) | ~100 min/iter |
 | Training (20 batches × 1024) | ~30 sec/iter |
 | Evaluation (1000 games, greedy) | ~5 min / every 5 iters |
-| **Full 100 iterations** | **~30-40 hours** |
+| **Full 100 iterations** | **~170-200 hours** |
 | Buffer storage (200K positions) | ~600 MB |
 | Model checkpoints (10 saves) | ~100 MB |
 | Total new storage | ~1-2 GB |
 
-**Parallelization opportunity**: Self-play is embarrassingly parallel. With 8 CPU cores doing self-play while GPU trains, throughput can increase 2-4x.
+**Important**: These estimates should be re-baselined after Phase 1/2 prototyping
+when actual per-move latency is measured. The numbers above use conservative assumptions.
+
+**Parallelization opportunity**: Self-play is embarrassingly parallel. With 8 CPU cores doing self-play while GPU trains, throughput can increase 4-8x, bringing 100 iterations down to ~25-50 hours. Batched NN inference (Phase 6 Tier 3) can add another 2-5x.

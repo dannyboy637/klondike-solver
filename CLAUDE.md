@@ -34,8 +34,8 @@ Detailed research: `alphazero-klondike-research.md`
 - Reference: AlphaZe** (Blüml, Czech & Kersting, Frontiers in AI, 2023)
 
 ### Neural Net Architecture (Leading Candidate)
-- **~857-dim hybrid state encoding** (Proposal D): binary card locations + uncertainty summary
-  - **Known gaps to address**: stock-pass context, action history, move-cycle features, richer per-position uncertainty
+- **757-dim hybrid state encoding** (baseline): binary card locations (11 one-hot per card) + uncertainty summary
+  - **Phase 6 expansion to ~857**: stock-pass context, action history, move-cycle features, richer per-position uncertainty
 - **MLP with residual blocks** (NOT CNN — card games lack spatial locality)
   - **Alternative to evaluate**: transformer/set-network for relational card-card interactions, LSTM history encoder
 - ~2M parameters, ~8 MB FP32, ~100 MB VRAM at batch 1024 (1.2% of 4060)
@@ -146,6 +146,36 @@ Each gate must pass before proceeding. Predefined stop criteria at each stage.
 - **Lonelybot**: git submodule — clone with `--recurse-submodules`
 - **Machine workflow**: MacBook (Phases 0-3, MPS) ↔ PC (Phase 4+, CUDA). See `specs/machine-transfer-plan.md`
 - **PyTorch device**: use `"mps"` on Mac, `"cuda"` on PC (auto-detect in code)
+
+## Evaluation Seed Protocol (Three Disjoint Sets — Never Mix)
+- **Phase 4 model selection**: seeds 5,000,000+ (1000 games per eval checkpoint)
+- **Phase 6 test_set_C (tuning)**: seeds 3,000,000 - 3,004,999 (5K games)
+- **Phase 6 test_set_A (final claims)**: seeds 1,000,000 - 1,009,999 (10K games)
+- **Phase 6 test_set_B (confirmation)**: seeds 2,000,000 - 2,009,999 (10K games)
+- **Rule**: NEVER tune hyperparameters on test_set_A/B. Final claims on test_set_A only, confirmed on test_set_B.
+
+## Session 4 Critical Finding: HOP Regression at HEAD
+- **Draw-3 Thoughtful: 82.13% — CONFIRMED** ✅
+- **Draw-3 HOP at HEAD: ~4% — DOES NOT MATCH published 47.58%** ❌
+- Root cause: 63 commits since published results (RNG change, pruner redesign, dominance rules)
+- Published results were at commit `3e88e66` (2024-05-14, v0.2.2 era)
+- Old `do_hop()` was **hardcoded draw-3** — no draw_step parameter existed
+- HOP has **no cycle detection** — infinite loops on unlimited passes. Local fix: `MAX_MOVES = 5000`
+- Local modifications in `lonecli/src/main.rs` (uncommitted on main): MAX_MOVES, eprintln for buffering
+- Benchmark script: `run_benchmark.py` (parallel workers, subprocess timeout, Wilson CI)
+- **NEXT**: reproduce 47.58% at old commit, then figure out draw-1 support
+
+## Known Spec Caveats (from Session 3 review + final cleanup)
+- MCTS: root.visit_count must be incremented after each `_simulate()` call — backprop only updates children
+- MCTS: root value must be computed from children (`sum(c.value_sum) / sum(c.visit_count)`), not `root.value`
+- PIMC seeding: always deterministic (`game_seed * 10000 + move_num * 100 + d`), never wall-clock
+- SearchFn signature: `Callable[[KlondikeEnv, int, int], SearchResult]` — all call sites must pass `(env, game_seed, move_num)`
+- Data generation: use memmap throughout, including final truncation (streaming copy to new memmap, not `np.array()`)
+- Train/val split: game-level, not position-level (prevents same-game data leakage)
+- Aux loss (foundation count, face-down prediction): deferred to Phase 6. Model has aux heads but Phase 3 trains policy+value only.
+- Cycle detection: track state hashes in self-play/eval, break on repeat (unlimited passes can loop)
+- Runtime: ~20-60s/game with PIMC+MCTS, ~170-200 hours total for 100 iterations × 200 games. Phase 3 data gen runtime depends on HOP approach (fast path: 2-10s/game, per-move HOP: minutes/game).
+- CLI: Lonelybot uses Clap kebab-case (`hop-loop`, not `hoploop`) — always verify with `--help`
 
 ## Guidelines for Claude
 - Always check `current_context.md` before starting work — it has the latest state of understanding

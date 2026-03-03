@@ -40,19 +40,27 @@ These are the first things to try after Phase 4. Each is a focused experiment th
 
 ### 1A. Hyperparameter Sweep
 
-Run a small grid search over the most impactful parameters:
+Run **one-at-a-time** sweeps (vary one parameter, hold others at Phase 4 defaults):
 
 ```
-Parameters to sweep:
-- MCTS simulations/move: [100, 200, 400, 800]
-- PIMC determinizations (training): [3, 5, 10]
-- Learning rate: [3e-4, 1e-3, 3e-3]
-- Replay buffer size: [50K, 100K, 200K, 500K]
-- Games per iteration: [100, 200, 500]
-- Temperature schedule: [15, 20, 30 moves at τ=1]
+Parameters to sweep (one at a time, ~20 total configs):
+- MCTS simulations/move: [100, 200, 400, 800]          → 4 configs
+- PIMC determinizations (training): [3, 5, 10]          → 3 configs
+- Learning rate: [3e-4, 1e-3, 3e-3]                     → 3 configs
+- Replay buffer size: [50K, 100K, 200K, 500K]           → 4 configs
+- Games per iteration: [100, 200, 500]                   → 3 configs
+- Temperature schedule: [15, 20, 30 moves at τ=1]       → 3 configs
+                                                   Total: ~20 configs
 ```
 
-**Method**: For each config, train for 20 iterations (not full 100), evaluate on 1000 fixed seeds. Pick the best, then do a full run.
+**WARNING**: Do NOT run a full grid search (4×3×3×4×3×3 = 1296 configs). That's
+~4.9 years of compute at 20 iterations each. One-at-a-time is the right approach
+for Tier 1. If needed later, use random search (budget: 30-50 configs) or
+Bayesian optimization.
+
+**Method**: For each config, train for 20 iterations (not full 100), evaluate on
+test_set_C (seeds 3M-3.005M, 5K games). Pick the best per-parameter, then do a
+full run with the combined best settings. Use test_set_C ONLY — never test_set_A/B.
 
 **Expected impact**: 1-3% win rate improvement from better hyperparams alone.
 
@@ -82,7 +90,7 @@ Plot: win rate vs training iteration. If the curve is still going up, you just n
 
 ### 2A. State Encoding Improvements
 
-The baseline encoding (~705 dims) has known gaps. Try adding:
+The baseline encoding (757 dims) has known gaps. Try adding:
 
 ```
 Additions to test (one at a time, measure impact):

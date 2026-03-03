@@ -111,11 +111,10 @@ def detect_board(screenshot: np.ndarray) -> BoardState:
     3. For each card region, identify rank and suit
     4. Return structured board state
     """
-    # Implementation depends on game UI layout
-    # This is a placeholder — actual implementation requires:
-    # - Reference card templates (one per card face)
-    # - Board region detection
-    # - Per-card template matching
+    # SCAFFOLD: actual implementation requires reference card templates,
+    # board region detection, and per-card template matching.
+    # This is deferred until the solver achieves >50% — do not include
+    # in Phase 5 acceptance criteria until implemented.
     raise NotImplementedError("Implement based on actual 1xbet UI")
 
 
@@ -211,10 +210,11 @@ class MoveAdvisor:
 
     def _get_legal_mask(self, game_state):
         """Get legal action mask from game state."""
+        # SCAFFOLD: depends on input source.
         # If using KlondikeGame (Rust): game_state.get_legal_moves()
         # If using CV-detected state: derive from board configuration
-        # This may need a separate legal move generator
-        pass
+        # Not required for acceptance until CV pipeline is implemented.
+        raise NotImplementedError("Wire to KlondikeGame or CV-derived state")
 
 
 class GameSession:
@@ -330,12 +330,17 @@ Play 10 games manually, noting any rule difference. For each game, also input th
 
 ## Acceptance Criteria
 
-- [ ] Can extract game state from screenshot OR manual input
+**Core (required for Phase 5 sign-off):**
+- [ ] Can input game state via manual entry (manual_input.py)
 - [ ] Move advisor produces recommendations in <100ms (CPU) or <10ms (GPU)
 - [ ] Recommendations match what the model would play
 - [ ] Game session logger tracks all moves and advice-follow rate
 - [ ] Rule fidelity verified against 1xbet (at least 10 games)
 - [ ] Latency is acceptable for live play
+
+**Deferred (implement when needed, not blocking):**
+- [ ] CV pipeline: screenshot → card detection → game state (detect_board, board_to_game_state)
+- [ ] _get_legal_mask wired to CV-derived state
 
 ---
 

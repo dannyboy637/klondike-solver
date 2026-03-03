@@ -44,8 +44,12 @@ ls -la target/release/lonecli
 
 ### Step 2: Explore CLI
 
+**Important**: Run `--help` first and verify all subcommand names before proceeding.
+Clap uses kebab-case by default (e.g., `HopLoop` → `hop-loop`). If any commands below
+fail, check `--help` output for the correct spelling.
+
 ```bash
-# Print help
+# Print help — verify all subcommand names here
 cargo run --release -p lonecli -- --help
 
 # Print a game state (seed 0, draw-3)
@@ -92,7 +96,7 @@ The HOP solver uses determinization + search to handle imperfect information.
 cargo run --release -p lonecli -- hop default 0 3
 
 # Run HOP loop over sequential seeds
-cargo run --release -p lonecli -- hoploop default 0 3
+cargo run --release -p lonecli -- hop-loop default 0 3
 ```
 
 **Expected result**: ~47.58% win rate (Lonelybot's published draw-3 HOP result)
@@ -111,7 +115,7 @@ This is the number that determines the project's viability.
 
 ```bash
 # Run HOP loop with draw-1
-cargo run --release -p lonecli -- hoploop default 0 1
+cargo run --release -p lonecli -- hop-loop default 0 1
 ```
 
 **Run at least 10,000 games** for a CI of ±1.0%.
@@ -120,11 +124,11 @@ Ideally 50,000 games for CI of ±0.45%.
 **Parallelize across terminal windows** (different seed ranges):
 ```bash
 # Terminal 1
-cargo run --release -p lonecli -- hoploop default 0 1
+cargo run --release -p lonecli -- hop-loop default 0 1
 # Terminal 2
-cargo run --release -p lonecli -- hoploop default 10000 1
+cargo run --release -p lonecli -- hop-loop default 10000 1
 # Terminal 3
-cargo run --release -p lonecli -- hoploop default 20000 1
+cargo run --release -p lonecli -- hop-loop default 20000 1
 # etc. — use all 16 threads
 ```
 
@@ -198,7 +202,7 @@ COMMANDS:
   random     Random rollout test (10000 games)
   rate       Statistical solver loop
   hop        Single HOP solve (3000 iters, 1000 node limit)
-  hoploop    Loop HOP solver over sequential seeds
+  hop-loop   Loop HOP solver over sequential seeds
 
 SEED TYPES: default, solvitaire, klondikesolve, greenfelt, exact, microsoft
 

@@ -47,6 +47,10 @@ Train a neural network by imitating the search solver's decisions (supervised le
 #   - Game outcome: 1.0 = win, 0.0 = loss
 # legal_masks.npy: shape (N, ACTION_SPACE_SIZE), dtype float32
 #   - Binary mask of legal moves at each state
+# game_offsets.npy: shape (n_games + 1,), dtype int64
+#   - game_offsets[i] = start position index of game i
+#   - Positions for game i: indices game_offsets[i] to game_offsets[i+1]
+#   - CRITICAL: Used for game-level train/val splitting to prevent data leakage
 
 # All arrays aligned by index: row i is the same game state
 ```
@@ -64,7 +68,7 @@ Generate supervised training data by running search solver on many deals.
 For each deal:
 1. Play the game using the search solver (PIMC or HOP)
 2. At each move, record:
-   - The observation vector (857-dim)
+   - The observation vector (757-dim)
    - The search policy (visit distribution over actions)
    - The legal action mask
 3. After the game ends, label all positions with the outcome (win/loss)
@@ -103,8 +107,8 @@ def generate_game_data(seed: int, draw_step: int = 1) -> dict:
         # Get observation
         obs = encode_state(env._game)
 
-        # Get search policy
-        result = pimc_search(env, SEARCH_CONFIG)
+        # Get search policy (pass seed + move count for deterministic PIMC seeding)
+        result = pimc_search(env, SEARCH_CONFIG, game_seed=seed, move_num=n_moves)
 
         # Normalize visit counts to probability distribution
         policy = result.visit_counts.copy()
@@ -123,7 +127,7 @@ def generate_game_data(seed: int, draw_step: int = 1) -> dict:
         env.step(result.action)
         n_moves += 1
 
-        if n_moves > 2000:
+        if n_moves > 500:  # Safety limit (real games rarely exceed 200)
             break
 
     won = env._game.is_win()
@@ -145,61 +149,102 @@ def generate_dataset(
     seed_start: int = 0,
     output_dir: str = "data/supervised",
     draw_step: int = 1,
+    max_positions: int = 5_000_000,  # Pre-allocate for ~100 positions/game
 ):
-    """Generate full dataset by playing many games."""
+    """
+    Generate full dataset by playing many games.
+
+    Uses pre-allocated memmap arrays to avoid RAM blowup.
+    The old approach (append lists + np.concatenate at checkpoints) used O(N) RAM
+    and O(N²) total work from repeated full concatenation. At 50K games × 50
+    positions × 757 dims × 4 bytes, that's ~15GB peak RAM just for observations.
+
+    This version writes directly to memory-mapped files on disk. RAM usage stays
+    constant regardless of dataset size.
+    """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    all_obs = []
-    all_policies = []
-    all_masks = []
-    all_values = []
+    # Pre-allocate memory-mapped arrays on disk
+    obs_mm = np.lib.format.open_memmap(
+        output_path / "observations.npy", mode="w+",
+        dtype=np.float32, shape=(max_positions, OBSERVATION_DIM))
+    pol_mm = np.lib.format.open_memmap(
+        output_path / "policies.npy", mode="w+",
+        dtype=np.float32, shape=(max_positions, ACTION_SPACE_SIZE))
+    mask_mm = np.lib.format.open_memmap(
+        output_path / "legal_masks.npy", mode="w+",
+        dtype=np.float32, shape=(max_positions, ACTION_SPACE_SIZE))
+    val_mm = np.lib.format.open_memmap(
+        output_path / "values.npy", mode="w+",
+        dtype=np.float32, shape=(max_positions,))
+
+    # Track game boundaries for game-level train/val splitting
+    game_offsets = [0]  # game_offsets[i] = start index of game i
+
+    pos_idx = 0
     wins = 0
 
     for i in range(n_games):
         seed = seed_start + i
         data = generate_game_data(seed, draw_step)
+        n_pos = len(data["observations"])
 
-        all_obs.append(data["observations"])
-        all_policies.append(data["policies"])
-        all_masks.append(data["legal_masks"])
-        all_values.append(data["values"])
+        if pos_idx + n_pos > max_positions:
+            print(f"WARNING: Reached max_positions={max_positions} at game {i}. Stopping.")
+            break
+
+        # Write directly to memmap (no RAM accumulation)
+        obs_mm[pos_idx:pos_idx + n_pos] = data["observations"]
+        pol_mm[pos_idx:pos_idx + n_pos] = data["policies"]
+        mask_mm[pos_idx:pos_idx + n_pos] = data["legal_masks"]
+        val_mm[pos_idx:pos_idx + n_pos] = data["values"]
+
+        pos_idx += n_pos
+        game_offsets.append(pos_idx)
 
         if data["won"]:
             wins += 1
 
         if (i + 1) % 100 == 0:
-            total_positions = sum(len(o) for o in all_obs)
             print(f"Game {i+1}/{n_games}: "
                   f"win_rate={wins/(i+1):.3f}, "
-                  f"total_positions={total_positions}")
+                  f"total_positions={pos_idx}")
 
-        # Save checkpoint every 5000 games
-        if (i + 1) % 5000 == 0:
-            _save_arrays(all_obs, all_policies, all_masks, all_values, output_path)
+    # Truncate to actual size via streaming copy to correctly-sized memmaps.
+    # Do NOT use np.array(memmap[:pos_idx]) — that loads the full slice into RAM,
+    # spiking memory at the end and defeating the purpose of memmaps.
+    for name_arr, src_mm, shape in [
+        ("observations.npy", obs_mm, (pos_idx, OBSERVATION_DIM)),
+        ("policies.npy", pol_mm, (pos_idx, ACTION_SPACE_SIZE)),
+        ("legal_masks.npy", mask_mm, (pos_idx, ACTION_SPACE_SIZE)),
+        ("values.npy", val_mm, (pos_idx,)),
+    ]:
+        dst = np.lib.format.open_memmap(
+            output_path / f"_{name_arr}", mode="w+",
+            dtype=np.float32, shape=shape)
+        dst[:] = src_mm[:pos_idx]
+        del dst  # flush to disk
+        (output_path / f"_{name_arr}").rename(output_path / name_arr)
 
-    _save_arrays(all_obs, all_policies, all_masks, all_values, output_path)
-    print(f"Done: {n_games} games, {wins} wins, "
-          f"{sum(len(o) for o in all_obs)} total positions")
+    np.save(output_path / "game_offsets.npy", np.array(game_offsets, dtype=np.int64))
 
+    del obs_mm, pol_mm, mask_mm, val_mm  # Release memmap handles
 
-def _save_arrays(obs_list, pol_list, mask_list, val_list, output_path):
-    """Concatenate and save arrays."""
-    np.save(output_path / "observations.npy",
-            np.concatenate(obs_list, axis=0))
-    np.save(output_path / "policies.npy",
-            np.concatenate(pol_list, axis=0))
-    np.save(output_path / "legal_masks.npy",
-            np.concatenate(mask_list, axis=0))
-    np.save(output_path / "values.npy",
-            np.concatenate(val_list, axis=0))
+    print(f"Done: {i+1} games, {wins} wins, {pos_idx} total positions")
+    print(f"Saved game_offsets.npy ({len(game_offsets)} games) for game-level splitting")
 ```
 
-**Data size estimate**: 50K games × ~50 moves/game × ~4KB/position = ~10GB raw.
-With compression or chunked loading: ~2-5GB on disk.
+**Data size estimate**: 50K games × ~50 moves/game × ~4KB/position = ~10GB raw on disk.
+Uses memory-mapped files during generation — constant RAM usage regardless of size.
+The `game_offsets.npy` file tracks game boundaries for game-level train/val splitting.
 
-**Compute time**: 50K games × ~2-4 sec/game (PIMC search) = 28-56 hours.
-Parallelized across 8 cores: ~3.5-7 hours.
+**Compute time** (depends on PIMC approach):
+- **Fast path** (Lonelybot HOP evaluates all moves at once per determinization): ~2-10 sec/game.
+  50K games = 28-140 hours sequential, ~3.5-18 hours on 8 cores.
+- **Per-move HOP path** (nested loop: n_det × n_legal_moves × n_iterations): can be **minutes per game**.
+  See Phase 2 performance warning. Use the fast path if at all possible.
+- Parallelization: each game is independent — trivially split across CPU cores.
 
 ---
 
@@ -238,7 +283,7 @@ class KlondikeNet(nn.Module):
     MLP-ResNet for Klondike Solitaire.
 
     Architecture:
-    - Input: observation vector (~857 dims, but use OBSERVATION_DIM)
+    - Input: observation vector (OBSERVATION_DIM = 757 baseline)
     - Input projection: Linear → ReLU
     - N residual blocks (default 4 × 512 hidden)
     - Dual heads:
@@ -329,20 +374,22 @@ class KlondikeNet(nn.Module):
 ```
 
 **Parameter count estimate**:
-- Input projection: 705 × 512 + 512 = 361,472
+- Input projection: 757 × 512 + 512 = 388,108
 - 4 residual blocks: 4 × (512×512 + 512 + 512×512 + 512) = 4 × 525,312 = 2,101,248
 - Policy head: 512 × 260 + 260 = 133,380
 - Value head: 512 × 256 + 256 + 256 × 1 + 1 = 131,329
 - Auxiliary: 512 × 2 + 2 = 1,026
-- **Total: ~2.7M parameters**
+- **Total: ~2.75M parameters** (~11 MB FP32)
 
 ### `klondike/nn/trainer.py` — Training Loop
 
 ```python
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
+from dataclasses import dataclass
 import numpy as np
 from pathlib import Path
 from klondike.nn.model import KlondikeNet
@@ -357,6 +404,8 @@ class KlondikeDataset(Dataset):
         self.policies = np.load(path / "policies.npy", mmap_mode="r")
         self.values = np.load(path / "values.npy", mmap_mode="r")
         self.legal_masks = np.load(path / "legal_masks.npy", mmap_mode="r")
+        # Game boundaries: game_offsets[i] = start index of game i's positions
+        self.game_offsets = np.load(path / "game_offsets.npy")
 
     def __len__(self):
         return len(self.observations)
@@ -370,6 +419,35 @@ class KlondikeDataset(Dataset):
         )
 
 
+def game_level_split(dataset: KlondikeDataset, val_fraction: float = 0.1):
+    """
+    Split dataset at the GAME level, not position level.
+
+    CRITICAL: Positions from the same game share near-identical features and
+    the same value label. Position-level random_split leaks information between
+    train and val, producing overoptimistic validation metrics.
+    """
+    n_games = len(dataset.game_offsets) - 1
+    game_indices = np.random.permutation(n_games)
+    n_val_games = max(1, int(n_games * val_fraction))
+
+    val_games = set(game_indices[:n_val_games])
+
+    train_positions = []
+    val_positions = []
+    for g in range(n_games):
+        start = dataset.game_offsets[g]
+        end = dataset.game_offsets[g + 1]
+        positions = list(range(start, end))
+        if g in val_games:
+            val_positions.extend(positions)
+        else:
+            train_positions.extend(positions)
+
+    return Subset(dataset, train_positions), Subset(dataset, val_positions)
+
+
+@dataclass
 class TrainerConfig:
     lr: float = 1e-3
     weight_decay: float = 1e-4
@@ -380,7 +458,10 @@ class TrainerConfig:
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     policy_loss_weight: float = 1.0
     value_loss_weight: float = 1.0
-    aux_loss_weight: float = 0.5
+    # NOTE: Auxiliary loss (foundation count, face-down prediction) is deferred to Phase 6.
+    # The model's aux heads exist for architecture compatibility, but Phase 3 training
+    # uses only policy + value loss. Enable aux loss in Phase 6 experiments (Tier 2D)
+    # once the pipeline is validated end-to-end.
 
 
 def train_supervised(
@@ -393,17 +474,19 @@ def train_supervised(
 
     Loss = policy_weight * CrossEntropy(policy, target)
          + value_weight * MSE(value, target)
-         + aux_weight * MSE(aux_predictions, aux_targets)
+
+    Auxiliary targets (foundation count, face-down count) are deferred to Phase 6.
+    The aux heads exist in the model for forward compatibility but are not trained here.
     """
     device = torch.device(config.device)
     model = model.to(device)
 
     dataset = KlondikeDataset(data_dir)
 
-    # Train/val split
-    n_val = int(len(dataset) * config.val_split)
-    n_train = len(dataset) - n_val
-    train_ds, val_ds = torch.utils.data.random_split(dataset, [n_train, n_val])
+    # GAME-LEVEL split: all positions from a game go to either train or val.
+    # This prevents same-game leakage where adjacent positions (near-identical
+    # features, identical value labels) appear in both splits.
+    train_ds, val_ds = game_level_split(dataset, config.val_split)
 
     train_loader = DataLoader(train_ds, batch_size=config.batch_size,
                               shuffle=True, num_workers=4, pin_memory=True)

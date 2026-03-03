@@ -50,8 +50,9 @@ class SearchResult:
     simulations_per_det: int
     wall_time_ms: float
 
-# Benchmark functions expect this:
-SearchFn = Callable[[KlondikeEnv], SearchResult]
+# Benchmark functions expect this signature:
+# (env, game_seed, move_num) → SearchResult
+SearchFn = Callable[[KlondikeEnv, int, int], SearchResult]
 ```
 
 ---
@@ -64,9 +65,10 @@ PIMC (Perfect Information Monte Carlo) with determinization:
 
 ```python
 import numpy as np
+import time
 from dataclasses import dataclass
 from klondike.env import KlondikeEnv
-from klondike.actions import ACTION_SPACE_SIZE
+from klondike.actions import ACTION_SPACE_SIZE, action_to_move
 
 @dataclass
 class PIMCConfig:
@@ -84,7 +86,7 @@ class SearchResult:
     wall_time_ms: float
 
 
-def pimc_search(env: KlondikeEnv, config: PIMCConfig) -> SearchResult:
+def pimc_search(env: KlondikeEnv, config: PIMCConfig, game_seed: int = 0, move_num: int = 0) -> SearchResult:
     """
     PIMC search: sample determinized worlds, solve each, aggregate.
 
@@ -99,6 +101,9 @@ def pimc_search(env: KlondikeEnv, config: PIMCConfig) -> SearchResult:
     4. Return best action and full distribution
 
     This uses Lonelybot's built-in HOP solver via PyO3.
+
+    NOTE: Seeding is deterministic (game_seed × move_num × d) for reproducibility.
+    Never use wall-clock time in research code — it kills reproducibility.
     """
     legal_actions = env.get_legal_action_list()
     if not legal_actions:
@@ -118,9 +123,9 @@ def pimc_search(env: KlondikeEnv, config: PIMCConfig) -> SearchResult:
     action_plays = np.zeros(ACTION_SPACE_SIZE, dtype=np.float64)
 
     for d in range(config.n_determinizations):
-        # Clone + determinize
+        # Clone + determinize (deterministic seeding for reproducibility)
         det_env = env.clone()
-        det_env.shuffle_hidden(rng_seed=d * 1000 + int(time.time() * 1000) % 10000)
+        det_env.shuffle_hidden(rng_seed=game_seed * 10000 + move_num * 100 + d)
 
         # For each legal move, estimate win rate via HOP
         for action in legal_actions:
@@ -157,7 +162,18 @@ def pimc_search(env: KlondikeEnv, config: PIMCConfig) -> SearchResult:
     )
 ```
 
-**Note**: The above wraps Lonelybot's HOP solver. If the PyO3 `hop_solve` call is per-move (evaluating one move at a time), we call it for each legal move. If Lonelybot's MCTS solver (`pick_moves`) gives the best move directly, we can use that instead for a simpler interface.
+**PERFORMANCE WARNING**: The per-move HOP approach above is a nested loop:
+`n_determinizations × n_legal_moves × n_hop_iterations`. With 10 determinizations,
+15 legal moves, and 3000 iterations, that's 450K HOP iterations per move decision.
+At ~50 moves/game, this could take **minutes per game**, not seconds.
+
+**Preferred approach**: Use Lonelybot's HOP/MCTS solver to evaluate ALL moves at once
+per determinization (it returns the best move with scores for all alternatives).
+This reduces the inner loop from `n_legal_moves × n_iterations` to just `n_iterations`.
+Check `hop_solve_game()` and `pick_moves()` signatures during Phase 1 PyO3 work to
+determine the most efficient interface.
+
+**Note**: If the PyO3 `hop_solve` call is per-move (evaluating one move at a time), we call it for each legal move. If Lonelybot's MCTS solver (`pick_moves`) gives the best move directly, we can use that instead for a simpler and much faster interface.
 
 ### Alternative: Use Lonelybot's MCTS directly
 
@@ -180,9 +196,11 @@ A pure-Python MCTS that will accept a neural net evaluation function. This is ne
 ```python
 import numpy as np
 import math
+import time
+from typing import Callable
 from dataclasses import dataclass, field
 from klondike.env import KlondikeEnv
-from klondike.actions import ACTION_SPACE_SIZE
+from klondike.actions import ACTION_SPACE_SIZE, action_to_move
 
 @dataclass
 class MCTSConfig:
@@ -259,6 +277,7 @@ def mcts_search(
     # Run simulations
     for _ in range(config.n_simulations):
         _simulate(env, root, config, eval_fn)
+        root.visit_count += 1  # Track total simulations for UCB at root
 
     # Extract visit distribution
     visit_counts = np.zeros(ACTION_SPACE_SIZE, dtype=np.float32)
@@ -273,10 +292,15 @@ def mcts_search(
         visit_probs = visit_probs / (visit_probs.sum() + 1e-8)
         best_action = np.random.choice(ACTION_SPACE_SIZE, p=visit_probs)
 
+    # Compute value from children (root.value_sum is never updated by backprop)
+    total_child_visits = sum(c.visit_count for c in root.children.values())
+    root_value = (sum(c.value_sum for c in root.children.values())
+                  / max(total_child_visits, 1))
+
     return SearchResult(
         action=best_action,
         visit_counts=visit_counts,
-        value=root.value,
+        value=root_value,
         determinizations_used=0,
         simulations_per_det=config.n_simulations,
         wall_time_ms=0.0,  # caller should time
@@ -324,7 +348,9 @@ def _simulate(env: KlondikeEnv, root: MCTSNode, config: MCTSConfig, eval_fn: Eva
                 if legal_mask[action] > 0 and action not in node.children:
                     node.children[action] = MCTSNode(prior=policy[action])
 
-    # Backpropagation
+    # Backpropagation: update visit counts and values for all nodes in the path.
+    # Note: root.visit_count is incremented in the caller (mcts_search) since
+    # root is only ever a parent in the path, never a child.
     for parent_node, action in reversed(path):
         child = parent_node.children[action]
         child.visit_count += 1
@@ -528,7 +554,7 @@ class GameRecord:
 
 
 def run_benchmark(
-    search_fn,            # Callable[[KlondikeEnv], SearchResult]
+    search_fn,            # Callable[[KlondikeEnv, int, int], SearchResult]
     config: BenchmarkConfig,
     name: str = "unnamed",
 ) -> dict:
@@ -558,7 +584,7 @@ def run_benchmark(
                 break
 
             search_start = time.perf_counter()
-            result = search_fn(env)
+            result = search_fn(env, seed, n_moves)
             search_time_total += time.perf_counter() - search_start
 
             if result.action < 0:
@@ -567,7 +593,7 @@ def run_benchmark(
             obs, reward, done, info = env.step(result.action)
             n_moves += 1
 
-            if n_moves > 2000:  # Safety: prevent infinite loops
+            if n_moves > 500:  # Safety limit (real games rarely exceed 200)
                 break
 
         won = env._game.is_win()
@@ -621,7 +647,7 @@ result = run_benchmark(lonelybot_hop_search, config, name="hop_default")
 ```python
 for n_det in [1, 3, 5, 10, 20, 50]:
     pimc_config = PIMCConfig(n_determinizations=n_det)
-    search_fn = lambda env: pimc_search(env, pimc_config)
+    search_fn = lambda env, s, m, cfg=pimc_config: pimc_search(env, cfg, game_seed=s, move_num=m)
     result = run_benchmark(search_fn, config, name=f"pimc_det{n_det}")
 ```
 
@@ -629,7 +655,7 @@ for n_det in [1, 3, 5, 10, 20, 50]:
 ```python
 for n_iter in [100, 500, 1000, 3000, 5000]:
     pimc_config = PIMCConfig(n_hop_iterations=n_iter)
-    search_fn = lambda env: pimc_search(env, pimc_config)
+    search_fn = lambda env, s, m, cfg=pimc_config: pimc_search(env, cfg, game_seed=s, move_num=m)
     result = run_benchmark(search_fn, config, name=f"pimc_iter{n_iter}")
 ```
 
@@ -637,7 +663,7 @@ for n_iter in [100, 500, 1000, 3000, 5000]:
 ```python
 for n_sims in [100, 200, 400, 800]:
     mcts_config = MCTSConfig(n_simulations=n_sims, temperature=0.0)
-    search_fn = lambda env: mcts_search(env, mcts_config, eval_fn=default_eval_fn)
+    search_fn = lambda env, s, m, cfg=mcts_config: mcts_search(env, cfg, eval_fn=default_eval_fn)
     result = run_benchmark(search_fn, config, name=f"mcts_uniform_{n_sims}")
 ```
 
