@@ -380,7 +380,7 @@ pub(crate) fn select_action_temperature(
     temperature: f32,
     rng: &mut impl Rng,
 ) -> i32 {
-    if temperature < 0.01 {
+    if temperature < 0.1 {
         // Near-greedy: pick highest visit count
         let mut best_action = -1i32;
         let mut best_count = -1.0f32;

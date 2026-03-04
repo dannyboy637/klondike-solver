@@ -57,6 +57,10 @@ struct Args {
     #[arg(long, default_value_t = 1000)]
     eval_games: usize,
 
+    /// Minimum buffer size before training begins.
+    #[arg(long, default_value_t = 5000)]
+    min_buffer: usize,
+
     /// Checkpoint directory.
     #[arg(long, default_value = "checkpoints/alphazero_rs")]
     checkpoint_dir: String,
@@ -93,6 +97,7 @@ fn main() -> Result<()> {
         checkpoint_dir: args.checkpoint_dir,
         net_config,
         warm_start: args.warm_start,
+        min_buffer_size: args.min_buffer,
         ..Default::default()
     };
 

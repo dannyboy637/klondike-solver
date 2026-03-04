@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use tch::{nn, nn::OptimizerConfig, Device, Kind, Tensor};
 
 use crate::buffer::ReplayBuffer;
-use crate::selfplay::{play_game, SelfPlayConfig};
+use crate::selfplay::{play_games_parallel, SelfPlayConfig};
 
 /// Pipeline configuration.
 pub struct PipelineConfig {
@@ -110,6 +110,12 @@ struct NeuralEvalFn<'a> {
     net: &'a KlondikeNet,
     device: Device,
 }
+
+// SAFETY: PyTorch model inference is thread-safe for read-only access.
+// During self-play, weights are frozen (no_grad), and each thread creates
+// its own input/output tensors. The raw pointer in tch::Tensor wraps a
+// reference-counted C++ at::Tensor that supports concurrent reads.
+unsafe impl Sync for NeuralEvalFn<'_> {}
 
 impl EvalFn for NeuralEvalFn<'_> {
     fn evaluate(&self, env: &KlondikeEnv) -> ([f32; ACTION_SPACE_SIZE], f32) {
@@ -209,16 +215,18 @@ pub fn run_pipeline(config: PipelineConfig) -> anyhow::Result<()> {
     for iteration in start_iteration..config.total_iterations {
         let iter_start = Instant::now();
 
-        // --- 1. Self-Play ---
+        // --- 1. Self-Play (parallel via rayon) ---
         let eval_fn = NeuralEvalFn { net: &net, device };
+        let seeds: Vec<u64> = (0..config.games_per_iteration)
+            .map(|g| (iteration * config.games_per_iteration + g) as u64)
+            .collect();
+        let all_games = play_games_parallel(&config.selfplay, &eval_fn, &seeds);
+
         let mut games_won = 0usize;
         let mut total_positions = 0usize;
         let mut total_game_time_s = 0.0f64;
 
-        for g in 0..config.games_per_iteration {
-            let seed = (iteration * config.games_per_iteration + g) as u64;
-            let game_data = play_game(&config.selfplay, &eval_fn, seed);
-
+        for game_data in all_games {
             if game_data.n_moves > 0 {
                 buffer.add_game(game_data.samples);
             }
