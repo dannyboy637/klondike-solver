@@ -140,6 +140,16 @@ Each gate must pass before proceeding. Predefined stop criteria at each stage.
 - `lonelybot/` — Lonelybot repo (git submodule, unmodified)
 - `klondike-env/` — Rust PyO3 crate (Phase 1)
 - `klondike/` — Python package (Phases 1-4)
+- `klondike-rs/` — **Pure Rust rebuild** (see below)
+
+## Rust Rebuild (klondike-rs/)
+The Python pipeline works but is too slow for heavy experimentation. `klondike-rs/` is a pure Rust rebuild targeting 50-100x speedup via rayon parallelism, arena-allocated MCTS, and batched GPU inference (tch-rs). See `specs/rust-rebuild-plan.md` for the full plan and `klondike-rs/CLAUDE.md` for Rust conventions.
+
+- **Python** (`klondike/`, `klondike-env/`, `scripts/`): original implementation, kept as-is for fallback
+- **Rust** (`klondike-rs/`): 5-crate workspace (core, search, nn, eval, train). Direct Lonelybot dependency, no FFI.
+- **tch-rs setup**: requires `LIBTORCH_USE_PYTORCH=1` and `DYLD_LIBRARY_PATH` pointing to PyTorch's lib dir
+- Build: `cd klondike-rs && LIBTORCH_USE_PYTORCH=1 VIRTUAL_ENV=../.venv PATH=../.venv/bin:$PATH cargo build`
+- Test: same env vars + `DYLD_LIBRARY_PATH=../.venv/lib/python3.14/site-packages/torch/lib cargo test --all`
 
 ## Repository
 - **GitHub**: `https://github.com/dannyboy637/klondike-solver` (private)

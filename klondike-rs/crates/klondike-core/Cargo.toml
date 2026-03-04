@@ -1,0 +1,8 @@
+[package]
+name = "klondike-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lonelybot = { workspace = true }
+rand = { workspace = true }

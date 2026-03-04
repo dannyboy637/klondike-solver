@@ -2,6 +2,94 @@
 
 ---
 
+## Session 9 — 2026-03-04: Rust Rebuild Phase R0 — Workspace Skeleton
+
+### Decision
+The Python AlphaZero pipeline (Phase 4) works but is too slow for heavy experimentation. A single heavy-config game takes ~92s in Python. Rebuilding the entire pipeline in pure Rust for 50-100x speedup via rayon parallelism, arena-allocated MCTS, and batched GPU inference (tch-rs).
+
+### What Was Done
+1. Created `klondike-rs/` workspace with 5 crates: core, search, nn, eval, train
+2. All crates compile and link against Lonelybot (path dependency to `../../lonelybot`)
+3. tch-rs 0.23 works with PyTorch 2.10 (from existing `.venv`), MPS device detected
+4. Lonelybot integration test: create game seed 42, list moves, make/undo move — all pass
+5. tch tensor test: creates tensor on MPS, basic math works
+6. clippy clean on all crates
+7. Updated CLAUDE.md, current_context.md, session_log.md
+8. Saved full rebuild plan as `specs/rust-rebuild-plan.md`
+
+### Build Environment
+```
+LIBTORCH_USE_PYTORCH=1
+VIRTUAL_ENV=../.venv
+PATH=../.venv/bin:$PATH
+DYLD_LIBRARY_PATH=../.venv/lib/python3.14/site-packages/torch/lib
+```
+
+### Key Finding: tch Version Compatibility
+- tch 0.17 (originally planned) is ABI-incompatible with PyTorch 2.10
+- Updated to tch 0.23 which expects PyTorch 2.10 — compiles and links cleanly
+
+### Next Steps
+- Phase R1: Port env.py, encoding.py, actions.py to Rust. Critical: encoding parity test.
+- Phase R2: Arena-allocated MCTS + PIMC
+- Phase R3: Neural network with tch-rs, weight loading from Python checkpoint
+
+---
+
+## Session 8 — 2026-03-04: Phase 4 AlphaZero Pipeline Implementation
+
+### What Happened
+Built the full AlphaZero self-play pipeline for PC-PIMC imperfect information solving.
+
+### Files Created
+- `klondike/alphazero/__init__.py` — Package init
+- `klondike/alphazero/buffer.py` — ReplayBuffer (FIFO, 200K capacity, save/load)
+- `klondike/alphazero/selfplay.py` — PC-PIMC self-play (determinize → MCTS → average → act)
+- `klondike/alphazero/pipeline.py` — Full training loop (self-play → buffer → train → eval → checkpoint)
+- `scripts/train_alphazero.py` — CLI entry point with all hyperparameters
+
+### Files Modified
+- `klondike/search/mcts.py` — Fixed temperature overflow: `visit_counts ** (1/temp)` overflows when temp=0.05 (exponent=20) and visits>100. Replaced with log-space computation.
+
+### Key Design Decisions
+1. **Warm start from supervised weights** — Loads `best_supervised.pt` (v2, 61% policy accuracy) for the initial model. Enormously better than random initialization.
+2. **FP16 mixed precision** — Enabled for CUDA (2x speedup), disabled for MPS (no GradScaler support).
+3. **Dirichlet noise only on first determinization** — Adding noise to all D determinizations would wash out the policy signal. Noise on d=0 only provides exploration while keeping d=1..D as clean MCTS.
+4. **Greedy eval (no search)** — Evaluation uses argmax policy for speed. Trend tracking only; not for final claims.
+5. **Deterministic PIMC seeding** — `seed * 10000 + move_count * 100 + d` for reproducibility.
+
+### Smoke Test Results (5 iterations, 20 games/iter, 3 det × 50 sims, M4 MPS)
+- Policy loss: 1.12 → 0.94 (learning from MCTS visit distributions)
+- Value loss: 0.077 → 0.041 (learning game outcomes)
+- Self-play win rate: ~10-25% per iteration (limited by 50 sims budget)
+- Greedy eval: 18% (50 games, CI 9.8-30.8%) — matches Phase 3 greedy baseline
+- ~10-12s/game at 3 det × 50 sims on M4 MPS
+- Checkpoint save/load and resumption: working
+
+### Timing Estimates (M4 MacBook Pro)
+| Config | Per-game | 200 games/iter | 100 iters |
+|--------|----------|----------------|-----------|
+| 2 det × 20 sims | ~3s | ~10 min | ~17h |
+| 3 det × 50 sims | ~11s | ~37 min | ~61h |
+| 5 det × 200 sims (production) | ~92s | ~5.1h | ~511h |
+
+- **MacBook**: 10-20 iterations at reduced config (3 det × 50 sims) for pipeline validation
+- **PC (4060+5700X)**: Full 100 iterations at production config. Expect 3-5x speedup from CUDA + batched inference.
+
+### MCTS Temperature Overflow Bug
+- `visit_counts ** (1.0 / temperature)` overflows float64 when temp=0.05 (exponent=20) and visit counts ≥ 100
+- Fixed by computing in log-space: `log(n)/temp` then softmax
+- Also fixed np.log(0) warning with np.maximum guard
+
+### Next Steps
+1. Run longer training on MacBook (20-30 iterations) to verify learning curve
+2. Transfer to PC for full 100+ iteration run
+3. Monitor: self-play win rate should increase, greedy eval should improve
+4. If self-play win rate > search baseline (55%), neural guidance is helping
+5. Full evaluation on test_set_A (10K games, seeds 1M+) for final claim
+
+---
+
 ## Session 1 — 2026-03-03: Research Compilation & Project Scoping
 
 ### What happened

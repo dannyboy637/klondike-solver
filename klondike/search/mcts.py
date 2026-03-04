@@ -116,11 +116,16 @@ def mcts_search(
     for action, child in root.children.items():
         visit_counts[action] = child.visit_count
 
-    # Select action based on temperature
+    # Select action based on temperature (log-space to avoid overflow)
     if config.temperature < 0.01:
         best_action = max(root.children, key=lambda a: root.children[a].visit_count)
     else:
-        visit_probs = visit_counts ** (1.0 / config.temperature)
+        # Use log-space: log(n^(1/t)) = log(n)/t, then softmax
+        log_visits = np.where(visit_counts > 0, np.log(np.maximum(visit_counts, 1e-30)), -1e9)
+        log_probs = log_visits / config.temperature
+        log_probs -= log_probs.max()  # Numerical stability
+        visit_probs = np.exp(log_probs)
+        visit_probs *= (visit_counts > 0).astype(np.float32)  # Zero out non-visited
         total = visit_probs.sum()
         if total > 0:
             visit_probs = visit_probs / total

@@ -1,6 +1,6 @@
 # Current Context — Living Research Document
 
-Last updated: 2026-03-04 (Phase 3 complete — supervised learning, Gate 2 conditional pass)
+Last updated: 2026-03-04 (Rust rebuild Phase R0 complete — workspace skeleton, tch-rs MPS verified)
 
 ---
 
@@ -242,7 +242,7 @@ Full spec plan in `specs/` directory (7 files). Each phase is self-contained for
 | 1 | Gate 1 prep | PyO3 Rust crate + Python game interface + encoding + actions | **COMPLETE** ✅ |
 | 2 | Gate 1 | PIMC search + Python MCTS + statistical evaluation framework | **COMPLETE** ✅ — GATE 1 PASS |
 | 3 | Gate 2 | Training data + MLP-ResNet (~2.7M params) + supervised training | **COMPLETE** ✅ — GATE 2 CONDITIONAL PASS |
-| 4 | Gate 3 | PC-PIMC self-play + replay buffer + AlphaZero training pipeline | |
+| 4 | Gate 3 | PC-PIMC self-play + replay buffer + AlphaZero training pipeline | **PIPELINE BUILT** — smoke tested, needs full run |
 | 5 | Gate 4 | CV pipeline + move advisor (optional, only if >50%) | |
 | 6 | Post-3 | Hyperparameter tuning, architecture experiments, scaling | |
 
@@ -478,6 +478,31 @@ Use fast for large-N benchmarks (1M games), heavy for precise ceiling estimates.
 3. **Soft targets didn't help**: hop_solve distributional targets slightly worse than one-hot behavior cloning. hop_solve is a weak algorithm (18% standalone), so its distributions may not provide good signal.
 4. **Model size doesn't matter much**: 590K params model performs as well as 2.75M on all metrics. Consider smaller model for faster Phase 4 inference.
 5. **Behavior cloning compounding error is real**: 60% per-move → 14% game-level. DAgger, self-play, or MCTS integration needed for game-level improvement.
+
+## Rust Rebuild — Phase R0 COMPLETE (Session 9)
+
+### Motivation
+Python pipeline works but too slow: ~92s/game at heavy config (5d x 200s). GIL prevents true parallelism. Full 100 iterations x 200 games = 500+ hours on MacBook.
+
+### Architecture
+Pure Rust rebuild in `klondike-rs/` — 5-crate workspace:
+- `klondike-core`: env, encoding (757-dim), action mapping. Direct Lonelybot calls.
+- `klondike-search`: arena-allocated MCTS, PC-PIMC with rayon parallelism.
+- `klondike-nn`: tch-rs neural net, batched GPU inference (key speedup).
+- `klondike-eval`: Wilson CI, SPRT, McNemar, parallel benchmark runner.
+- `klondike-train`: replay buffer, self-play, training loop, CLI binaries.
+
+### Phase R0 Results
+- Workspace compiles, all 5 crates link correctly
+- Lonelybot integration test: create game, list moves, make/undo move — PASS
+- tch-rs tensor test: MPS device detected and working (PyTorch 2.10 via tch 0.23)
+- clippy clean on all crates
+- **Build env**: `LIBTORCH_USE_PYTORCH=1`, `DYLD_LIBRARY_PATH` to PyTorch lib dir
+
+### Target Speedup
+50-100x via: rayon parallel self-play, arena-allocated MCTS, batched GPU inference, zero FFI overhead.
+
+### Full plan: `specs/rust-rebuild-plan.md`
 
 ## Additional Research to Investigate
 - POMCP (Silver & Veness, 2010) and POMCPOW variants

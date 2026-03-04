@@ -1,0 +1,9 @@
+[package]
+name = "klondike-nn"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+klondike-core = { path = "../klondike-core" }
+tch = { workspace = true }
+anyhow = { workspace = true }

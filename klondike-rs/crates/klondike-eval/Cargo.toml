@@ -1,0 +1,13 @@
+[package]
+name = "klondike-eval"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+klondike-core = { path = "../klondike-core" }
+klondike-search = { path = "../klondike-search" }
+lonelybot = { workspace = true }
+rand = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
