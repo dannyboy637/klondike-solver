@@ -502,6 +502,19 @@ Pure Rust rebuild in `klondike-rs/` — 5-crate workspace:
 ### Target Speedup
 50-100x via: rayon parallel self-play, arena-allocated MCTS, batched GPU inference, zero FFI overhead.
 
+### Team Agent Strategy
+Phases R1, R3, R4, R6 use 2 parallel Claude Code team agents (worktree isolation). Phases R2, R5, R7 are single-agent. Full team split instructions in each phase prompt.
+
+| Phase | Team? | Agent A | Agent B |
+|-------|-------|---------|---------|
+| R1 | Yes | actions.rs + encoding.rs | env.rs |
+| R2 | No | mcts.rs + pimc.rs (coupled) | — |
+| R3 | Yes | model.rs (KlondikeNet) | inference.rs (batched eval) |
+| R4 | Yes | buffer.rs (replay buffer) | selfplay.rs (parallel games) |
+| R5 | No | pipeline.rs + CLI (integrates all) | — |
+| R6 | Yes | stats.rs + benchmark.rs | monitor + convert_weights CLIs |
+| R7 | No | profiling + polish (iterative) | — |
+
 ### Full plan: `specs/rust-rebuild-plan.md`
 
 ## Additional Research to Investigate

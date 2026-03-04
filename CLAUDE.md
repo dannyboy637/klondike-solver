@@ -150,6 +150,7 @@ The Python pipeline works but is too slow for heavy experimentation. `klondike-r
 - **tch-rs setup**: requires `LIBTORCH_USE_PYTORCH=1` and `DYLD_LIBRARY_PATH` pointing to PyTorch's lib dir
 - Build: `cd klondike-rs && LIBTORCH_USE_PYTORCH=1 VIRTUAL_ENV=../.venv PATH=../.venv/bin:$PATH cargo build`
 - Test: same env vars + `DYLD_LIBRARY_PATH=../.venv/lib/python3.14/site-packages/torch/lib cargo test --all`
+- **Team agents**: Phases R1, R3, R4, R6 use parallel Claude Code team agents (2 agents per phase). Prompts in `specs/rust-rebuild-plan.md` include team split instructions. Phases R2, R5, R7 are single-agent.
 
 ## Repository
 - **GitHub**: `https://github.com/dannyboy637/klondike-solver` (private)
