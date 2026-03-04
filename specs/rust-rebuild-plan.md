@@ -87,10 +87,14 @@ cargo clippy --all-targets -- -D warnings
 - Workspace compiles, Lonelybot links, tch-rs MPS test passes
 - tch 0.23 (not 0.17) required for PyTorch 2.10
 
-### Phase R1: Core Environment
+### Phase R1: Core Environment -- COMPLETE
 **Team: recommended (2 agents)**
 
 Port `env.py`, `encoding.py`, `actions.py`. Verify encoding matches Python bit-for-bit.
+- actions.rs (168 lines, 8 tests), encoding.rs (350 lines, 7 tests), env.rs (305 lines, 7 tests)
+- Encoding parity test: 757 floats match Python within 1e-6 across 11 snapshots
+- Bug fixed: pile position must use full pile length (hidden + visible)
+- 27 total tests pass, clippy + fmt clean
 
 Key details:
 - Move type mapping: 0=DeckStack, 1=PileStack, 2=DeckPile, 3=StackPile, 4=Reveal

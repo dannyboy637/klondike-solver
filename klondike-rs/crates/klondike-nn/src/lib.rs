@@ -26,7 +26,10 @@ mod tests {
 
         // Basic math should work
         let sum = t.sum(tch::Kind::Float);
-        assert!(sum.size().is_empty(), "scalar tensor should have empty shape");
+        assert!(
+            sum.size().is_empty(),
+            "scalar tensor should have empty shape"
+        );
         eprintln!("tensor sum: {:?}", f64::try_from(&sum).unwrap());
     }
 }
