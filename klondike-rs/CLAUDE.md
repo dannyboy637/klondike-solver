@@ -47,6 +47,9 @@ Lonelybot is a direct path dependency — no PyO3, no FFI overhead.
 - `PileVec = ArrayVec<Card, 13>` — from `lonelybot::standard`
 - **Weight loading**: Python `.pt` (pickle) is NOT compatible with tch-rs `VarStore::load()`. Use `.safetensors` format instead — `VarStore::load()` auto-detects by extension.
 - **tch-rs path naming**: `vs / "blocks" / "0" / "fc1"` (NOT `vs / "blocks.0"` — panics because `.` is treated as path separator)
+- **tch-rs `sum_dim_intlist`**: takes `&[-1i64][..]` (slice), not `&[-1i64]` (array ref)
+- **tch-rs `backward_step_clip`**: requires `&mut self` on Optimizer (not `&self`)
+- **DYLD_LIBRARY_PATH for tests**: must be absolute path, not relative (cargo test changes cwd)
 
 ## Testing
 - Unit tests in same file (`#[cfg(test)] mod tests`)
