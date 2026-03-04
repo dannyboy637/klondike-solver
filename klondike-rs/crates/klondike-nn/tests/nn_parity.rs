@@ -89,7 +89,7 @@ fn test_weight_loading_parity() {
     }
 
     let config = NetConfig::default();
-    let infer = BatchedInference::load(&config, &ckpt_path)
+    let mut infer = BatchedInference::load(&config, &ckpt_path)
         .unwrap_or_else(|e| panic!("Failed to load checkpoint: {}", e));
 
     eprintln!("Loaded checkpoint on device: {:?}", infer.device());
@@ -157,7 +157,7 @@ fn test_weight_loading_parity() {
 #[test]
 fn test_batch_inference_throughput() {
     let config = NetConfig::default();
-    let infer = BatchedInference::new(&config);
+    let mut infer = BatchedInference::new(&config);
 
     // Create a batch of 64 observations
     let obs = [0.5f32; 757];

@@ -215,9 +215,12 @@ pub fn mcts_search_with_arena(
     // Create root children
     arena.expand(root_idx, &legal_mask, &policy);
 
+    // Pre-allocate path buffer — reused across all simulations
+    let mut path: Vec<u32> = Vec::with_capacity(64);
+
     // Run simulations
     for _ in 0..config.n_simulations {
-        simulate(arena, env, root_idx, config, eval_fn);
+        simulate(arena, env, root_idx, config, eval_fn, &mut path);
         // CRITICAL: root.visit_count must be incremented here, not in backprop.
         arena.nodes[root_idx as usize].visit_count += 1;
     }
@@ -260,16 +263,19 @@ pub fn mcts_search_with_arena(
 }
 
 /// Single MCTS simulation: select -> expand -> evaluate -> backpropagate.
+///
+/// `path` is a reusable buffer for tracking the traversal path.
+/// It is cleared at the start of each call and reused to avoid allocation.
 fn simulate(
     arena: &mut MctsArena,
     env: &KlondikeEnv,
     root_idx: u32,
     config: &MctsConfig,
     eval_fn: &dyn EvalFn,
+    path: &mut Vec<u32>,
 ) {
     let mut sim_env = env.clone();
-    // path stores child indices visited during selection
-    let mut path: Vec<u32> = Vec::with_capacity(64);
+    path.clear();
     let mut node_idx = root_idx;
 
     // Selection: walk down tree picking best UCB child

@@ -1,3 +1,10 @@
+//! Search algorithms for Klondike Solitaire: MCTS, PC-PIMC, and HOP.
+//!
+//! - [`mcts`]: Arena-allocated Monte Carlo Tree Search with UCB1 selection.
+//! - [`pimc`]: Policy Combining Perfect Information Monte Carlo (determinize + average).
+//! - [`hop`]: Lonelybot's built-in HOP solver (~55% win rate on draw-1).
+//! - [`eval_fn`]: Evaluation function trait for MCTS leaf nodes.
+
 pub mod eval_fn;
 pub mod hop;
 pub mod mcts;

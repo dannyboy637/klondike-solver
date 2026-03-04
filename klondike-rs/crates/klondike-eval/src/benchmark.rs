@@ -131,10 +131,11 @@ pub fn run_benchmark(
 /// Run a benchmark sequentially (single-threaded).
 ///
 /// Same as `run_benchmark` but does not use rayon. Useful when the game-playing
-/// function captures non-Sync state (e.g. GPU neural net inference).
+/// function captures mutable or non-Sync state (e.g. GPU neural net inference
+/// with pre-allocated staging buffers).
 pub fn run_benchmark_sequential(
     config: &BenchmarkConfig,
-    play_game: &dyn Fn(u64) -> bool,
+    play_game: &mut dyn FnMut(u64) -> bool,
 ) -> BenchmarkResult {
     let start = Instant::now();
     let mut wins: usize = 0;

@@ -5,12 +5,17 @@ use klondike_core::actions::ACTION_SPACE_SIZE;
 use klondike_core::encoding::OBSERVATION_DIM;
 use tch::{nn, nn::Module, Kind, Tensor};
 
-/// Configuration for KlondikeNet.
+/// Configuration for KlondikeNet architecture.
 pub struct NetConfig {
+    /// Observation vector size (default: 757).
     pub input_dim: i64,
+    /// Hidden layer dimension in residual blocks (default: 512).
     pub hidden_dim: i64,
+    /// Number of residual blocks (default: 4).
     pub n_blocks: i64,
+    /// Action space size (default: 260).
     pub action_dim: i64,
+    /// Whether to include auxiliary heads (foundation count, face-down prediction).
     pub use_auxiliary: bool,
 }
 

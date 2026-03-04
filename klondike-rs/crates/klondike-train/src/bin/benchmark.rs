@@ -127,7 +127,12 @@ fn play_pimc_game(
 
 /// Play a single game using greedy neural policy (argmax over legal actions).
 /// Returns true if the game was won.
-fn play_greedy_game(seed: u64, draw_step: u8, infer: &BatchedInference, max_moves: u32) -> bool {
+fn play_greedy_game(
+    seed: u64,
+    draw_step: u8,
+    infer: &mut BatchedInference,
+    max_moves: u32,
+) -> bool {
     let mut env = KlondikeEnv::new(seed, draw_step);
     let mut move_count: u32 = 0;
     let mut seen_states = HashSet::new();
@@ -207,13 +212,13 @@ fn main() -> Result<()> {
         );
         println!("{}", "=".repeat(60));
 
-        let infer = BatchedInference::load(&net_config, checkpoint_path)?;
+        let mut infer = BatchedInference::load(&net_config, checkpoint_path)?;
         let draw_step = args.draw_step;
         let max_moves = args.max_moves;
 
-        // Neural inference uses GPU — run sequentially (BatchedInference is not Sync)
-        run_benchmark_sequential(&config, &|seed| {
-            play_greedy_game(seed, draw_step, &infer, max_moves)
+        // Neural inference uses GPU — run sequentially (BatchedInference needs &mut self)
+        run_benchmark_sequential(&config, &mut |seed| {
+            play_greedy_game(seed, draw_step, &mut infer, max_moves)
         })
     } else if args.hop {
         // Lonelybot HOP solver (the 54.96% baseline)

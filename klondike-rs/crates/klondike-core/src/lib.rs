@@ -1,3 +1,9 @@
+//! Core game environment for Klondike Solitaire.
+//!
+//! Provides the game state wrapper ([`env::KlondikeEnv`]), 757-dim neural network
+//! encoding ([`encoding::encode_state`]), and action space mapping ([`actions`]).
+//! Wraps Lonelybot's Solitaire engine with zero FFI overhead.
+
 pub mod actions;
 pub mod encoding;
 pub mod env;

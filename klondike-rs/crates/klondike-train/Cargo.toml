@@ -32,3 +32,7 @@ path = "src/bin/benchmark.rs"
 [[bin]]
 name = "convert-weights"
 path = "src/bin/convert_weights.rs"
+
+[[bin]]
+name = "profile-selfplay"
+path = "src/bin/profile_selfplay.rs"

@@ -20,11 +20,16 @@ pub fn auto_device() -> Device {
 /// Batched neural network inference engine.
 ///
 /// Wraps a KlondikeNet with its VarStore and handles device placement,
-/// tensor construction, and result extraction.
+/// tensor construction, and result extraction. Pre-allocates staging
+/// buffers to avoid repeated heap allocation in hot paths.
 pub struct BatchedInference {
     net: KlondikeNet,
     vs: nn::VarStore,
     device: Device,
+    /// Pre-allocated staging buffer for flattened observations.
+    obs_staging: Vec<f32>,
+    /// Pre-allocated staging buffer for flattened legal masks.
+    mask_staging: Vec<f32>,
 }
 
 impl BatchedInference {
@@ -38,7 +43,13 @@ impl BatchedInference {
     pub fn new_on_device(config: &NetConfig, device: Device) -> Self {
         let vs = nn::VarStore::new(device);
         let net = KlondikeNet::new(&vs.root(), config);
-        Self { net, vs, device }
+        Self {
+            net,
+            vs,
+            device,
+            obs_staging: Vec::with_capacity(64 * OBSERVATION_DIM),
+            mask_staging: Vec::with_capacity(64 * ACTION_SPACE_SIZE),
+        }
     }
 
     /// Load weights from a .pt checkpoint file.
@@ -47,7 +58,13 @@ impl BatchedInference {
         let mut vs = nn::VarStore::new(device);
         let net = KlondikeNet::new(&vs.root(), config);
         vs.load(path)?;
-        Ok(Self { net, vs, device })
+        Ok(Self {
+            net,
+            vs,
+            device,
+            obs_staging: Vec::with_capacity(64 * OBSERVATION_DIM),
+            mask_staging: Vec::with_capacity(64 * ACTION_SPACE_SIZE),
+        })
     }
 
     pub fn device(&self) -> Device {
@@ -69,8 +86,10 @@ impl BatchedInference {
     ///
     /// Returns N `(policy_probs, value)` pairs.
     /// Policy is a proper probability distribution over legal actions only.
+    ///
+    /// Uses pre-allocated staging buffers to avoid per-call heap allocation.
     pub fn evaluate_batch(
-        &self,
+        &mut self,
         observations: &[[f32; OBSERVATION_DIM]],
         legal_masks: &[[f32; ACTION_SPACE_SIZE]],
     ) -> Vec<([f32; ACTION_SPACE_SIZE], f32)> {
@@ -84,18 +103,24 @@ impl BatchedInference {
             return Vec::new();
         }
 
-        // Flatten into contiguous buffers
-        let obs_flat: Vec<f32> = observations
-            .iter()
-            .flat_map(|o| o.iter().copied())
-            .collect();
-        let mask_flat: Vec<f32> = legal_masks.iter().flat_map(|m| m.iter().copied()).collect();
+        // Reuse staging buffers (clear + extend avoids reallocation)
+        self.obs_staging.clear();
+        self.obs_staging.reserve(n * OBSERVATION_DIM);
+        for obs in observations {
+            self.obs_staging.extend_from_slice(obs);
+        }
+
+        self.mask_staging.clear();
+        self.mask_staging.reserve(n * ACTION_SPACE_SIZE);
+        for mask in legal_masks {
+            self.mask_staging.extend_from_slice(mask);
+        }
 
         // Create tensors on the target device
-        let obs_tensor = Tensor::from_slice(&obs_flat)
+        let obs_tensor = Tensor::from_slice(&self.obs_staging)
             .reshape([n as i64, OBSERVATION_DIM as i64])
             .to_device(self.device);
-        let mask_tensor = Tensor::from_slice(&mask_flat)
+        let mask_tensor = Tensor::from_slice(&self.mask_staging)
             .reshape([n as i64, ACTION_SPACE_SIZE as i64])
             .to_device(self.device);
 
@@ -103,23 +128,22 @@ impl BatchedInference {
         let (log_policy, value) =
             tch::no_grad(|| self.net.forward(&obs_tensor, Some(&mask_tensor)));
 
-        // Convert log_policy to probabilities
-        let policy_probs = log_policy.exp();
+        // Convert log_policy to probabilities and move to CPU in one step
+        let policy_cpu = log_policy.exp().to_device(Device::Cpu);
+        let value_cpu = value.to_device(Device::Cpu).view([-1]); // [n, 1] -> [n]
 
-        // Move results to CPU and extract
-        let policy_cpu = policy_probs.to_device(Device::Cpu);
-        let value_cpu = value.to_device(Device::Cpu).squeeze_dim(1); // [n, 1] -> [n]
+        // Extract results via contiguous copy (faster than per-row get())
+        let policy_flat: Vec<f32> =
+            Vec::try_from(&policy_cpu.view([-1])).expect("failed to extract policy tensor");
+        let value_flat: Vec<f32> =
+            Vec::try_from(&value_cpu).expect("failed to extract value tensor");
 
         let mut results = Vec::with_capacity(n);
-        for i in 0..n {
+        for (i, &val) in value_flat.iter().enumerate().take(n) {
             let mut policy = [0.0f32; ACTION_SPACE_SIZE];
-            let policy_row = policy_cpu.get(i as i64);
-            let policy_data: Vec<f32> =
-                Vec::try_from(&policy_row).expect("failed to extract policy tensor");
-            policy.copy_from_slice(&policy_data);
-
-            let val: f64 = value_cpu.double_value(&[i as i64]);
-            results.push((policy, val as f32));
+            let start = i * ACTION_SPACE_SIZE;
+            policy.copy_from_slice(&policy_flat[start..start + ACTION_SPACE_SIZE]);
+            results.push((policy, val));
         }
 
         results
@@ -127,7 +151,7 @@ impl BatchedInference {
 
     /// Evaluate a single position (convenience wrapper).
     pub fn evaluate_single(
-        &self,
+        &mut self,
         observation: &[f32; OBSERVATION_DIM],
         legal_mask: &[f32; ACTION_SPACE_SIZE],
     ) -> ([f32; ACTION_SPACE_SIZE], f32) {
@@ -158,7 +182,7 @@ mod tests {
     #[test]
     fn test_batched_inference_random_weights() {
         let config = NetConfig::default();
-        let infer = BatchedInference::new(&config);
+        let mut infer = BatchedInference::new(&config);
 
         // Create 10 observations and masks
         let mut observations = Vec::new();
@@ -199,7 +223,7 @@ mod tests {
     #[test]
     fn test_evaluate_single() {
         let config = NetConfig::default();
-        let infer = BatchedInference::new(&config);
+        let mut infer = BatchedInference::new(&config);
 
         let mut obs = [0.0f32; OBSERVATION_DIM];
         obs[0] = 1.0;
@@ -215,7 +239,7 @@ mod tests {
     #[test]
     fn test_empty_batch() {
         let config = NetConfig::default();
-        let infer = BatchedInference::new(&config);
+        let mut infer = BatchedInference::new(&config);
         let results = infer.evaluate_batch(&[], &[]);
         assert!(results.is_empty());
     }
