@@ -1,4 +1,5 @@
 pub mod eval_fn;
+pub mod hop;
 pub mod mcts;
 pub mod pimc;
 

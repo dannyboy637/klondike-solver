@@ -73,8 +73,7 @@ fn test_pipeline_5iter_10games_3d_50s() {
     // Last entry (iter 4) should have eval results (eval_every=5, iter+1=5)
     let last = &log[4];
     assert!(
-        last.get("eval_win_rate").is_some()
-            && !last.get("eval_win_rate").unwrap().is_null(),
+        last.get("eval_win_rate").is_some() && !last.get("eval_win_rate").unwrap().is_null(),
         "iteration 4 should have eval results"
     );
 
@@ -155,7 +154,10 @@ fn test_training_log_python_compat() {
     eprintln!("Test 2: Training log JSON format validated");
     eprintln!("  Fields: {:?}", required_fields);
     eprintln!("  Entries: {}", log.len());
-    eprintln!("  Sample: {}", serde_json::to_string_pretty(&log[0]).unwrap());
+    eprintln!(
+        "  Sample: {}",
+        serde_json::to_string_pretty(&log[0]).unwrap()
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -221,8 +223,7 @@ fn test_load_python_checkpoint_greedy_eval() {
             let mask_t = Tensor::from_slice(&mask)
                 .reshape([1, ACTION_SPACE_SIZE as i64])
                 .to_device(device);
-            let (log_policy, _value) =
-                tch::no_grad(|| net.forward(&obs_t, Some(&mask_t)));
+            let (log_policy, _value) = tch::no_grad(|| net.forward(&obs_t, Some(&mask_t)));
             let policy = log_policy.exp().squeeze_dim(0);
             let policy_data: Vec<f32> = Vec::try_from(&policy).unwrap();
 
@@ -268,14 +269,17 @@ fn test_load_python_checkpoint_greedy_eval() {
     // With only 100 games, allow wide range (5-30%)
     // Main check: it doesn't crash and produces reasonable results
     assert!(
-        win_rate >= 0.0 && win_rate <= 1.0,
+        (0.0..=1.0).contains(&win_rate),
         "win rate {} out of range",
         win_rate
     );
 
     // Should be better than random (random MCTS was 0%)
     // But greedy without search can be low, so just check it runs
-    eprintln!("  Win rate: {:.1}% (Python supervised was ~15%)", win_rate * 100.0);
+    eprintln!(
+        "  Win rate: {:.1}% (Python supervised was ~15%)",
+        win_rate * 100.0
+    );
 }
 
 /// Test 4: Single heavy game (5d x 200s) -> under 5s
@@ -297,12 +301,9 @@ fn test_single_heavy_game_timing() {
         fn evaluate(&self, env: &KlondikeEnv) -> ([f32; ACTION_SPACE_SIZE], f32) {
             let obs = env.get_observation();
             let mask = env.get_legal_mask();
-            let obs_t = Tensor::from_slice(&obs)
-                .reshape([1, OBSERVATION_DIM as i64]);
-            let mask_t = Tensor::from_slice(&mask)
-                .reshape([1, ACTION_SPACE_SIZE as i64]);
-            let (log_policy, value) =
-                tch::no_grad(|| self.net.forward(&obs_t, Some(&mask_t)));
+            let obs_t = Tensor::from_slice(&obs).reshape([1, OBSERVATION_DIM as i64]);
+            let mask_t = Tensor::from_slice(&mask).reshape([1, ACTION_SPACE_SIZE as i64]);
+            let (log_policy, value) = tch::no_grad(|| self.net.forward(&obs_t, Some(&mask_t)));
             let policy_probs = log_policy.exp().squeeze_dim(0);
             let policy_data: Vec<f32> = Vec::try_from(&policy_probs).unwrap();
             let mut result = [0.0f32; ACTION_SPACE_SIZE];
