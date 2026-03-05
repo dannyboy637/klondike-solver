@@ -3,11 +3,17 @@ use lonelybot::card::Card;
 use lonelybot::deck::{N_PILES, N_PILE_CARDS};
 use lonelybot::shuffler::default_shuffle;
 
-const RANKS: [char; 13] = ['a','2','3','4','5','6','7','8','9','t','j','q','k'];
-const SUITS: [char; 4] = ['h','d','c','s'];
+const RANKS: [char; 13] = [
+    'a', '2', '3', '4', '5', '6', '7', '8', '9', 't', 'j', 'q', 'k',
+];
+const SUITS: [char; 4] = ['h', 'd', 'c', 's'];
 
 fn card_code(card: Card) -> String {
-    format!("{}{}", RANKS[card.rank() as usize], SUITS[card.suit() as usize])
+    format!(
+        "{}{}",
+        RANKS[card.rank() as usize],
+        SUITS[card.suit() as usize]
+    )
 }
 
 // We need access to the assistant's internals.

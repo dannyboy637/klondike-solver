@@ -2,7 +2,7 @@ use lonelybot::card::{Card, N_CARDS};
 use lonelybot::deck::N_PILES;
 use lonelybot::engine::Move;
 
-use crate::game_state::GameState;
+use crate::game_state::{GameMove, GameState};
 use crate::input::{format_card, parse_card, parse_cards};
 use crate::solver::{HopSolver, HopSolverConfig, Recommendation};
 
@@ -35,6 +35,8 @@ pub struct App {
     pub session_wins: u32,
     pub session_losses: u32,
     solver: HopSolver,
+    /// Incremented on each solver call to vary RNG across recomputes.
+    solver_call_count: u32,
 }
 
 impl App {
@@ -48,6 +50,7 @@ impl App {
             session_wins: 0,
             session_losses: 0,
             solver: HopSolver::new(config),
+            solver_call_count: 0,
         }
     }
 
@@ -87,22 +90,20 @@ impl App {
                     return;
                 }
                 match key {
-                    'q' => self.should_quit = true,
                     'u' => self.handle_undo(),
                     'r' => self.compute_recommendation(),
+                    'n' => self.start_new_game(),
+                    'd' => self.handle_draw(),
+                    'g' => self.handle_give_up(),
                     _ => {}
                 }
             }
-            AppPhase::GameOver { .. } => match key {
-                'q' => self.should_quit = true,
-                'n' => self.start_new_game(),
-                _ => {}
-            },
-            _ => {
-                if key == 'q' {
-                    self.should_quit = true;
+            AppPhase::GameOver { .. } => {
+                if key == 'n' {
+                    self.start_new_game();
                 }
             }
+            _ => {}
         }
     }
 
@@ -298,40 +299,73 @@ impl App {
         }
 
         if let Some(m) = rec_move {
-            self.apply_lonelybot_move(m);
+            let _ = self.apply_lonelybot_move(m);
         }
     }
 
-    /// Apply a lonelybot Move to our game state.
-    fn apply_lonelybot_move(&mut self, m: Move) {
+    /// Apply a lonelybot Move to our game state. Returns true if the move was applied.
+    fn apply_lonelybot_move(&mut self, m: Move) -> bool {
         let state = match &mut self.phase {
             AppPhase::Playing { state, .. } => state,
-            _ => return,
+            _ => return false,
         };
 
-        match m {
+        let applied = match m {
             Move::DeckStack(card) => {
                 state.waste_to_foundation(card);
+                true
             }
             Move::PileStack(card) => {
                 if let Some(pile_idx) = find_card_pile(state, card) {
                     state.pile_to_foundation(card, pile_idx);
+                    true
+                } else {
+                    false
                 }
             }
             Move::DeckPile(card) => {
-                // Find a valid target pile for this card
                 if let Some(target) = find_target_pile(state, card) {
                     state.waste_to_pile(card, target);
+                    true
+                } else {
+                    false
                 }
             }
             Move::StackPile(card) => {
                 if let Some(target) = find_target_pile(state, card) {
                     state.foundation_to_pile(card, target);
+                    true
+                } else {
+                    false
                 }
             }
-            Move::Reveal(_card) => {
-                // Reveal is handled by awaiting user input for the actual card
+            Move::Reveal(card) => {
+                // In Lonelybot, Reveal(c) means "move card c (and its sub-stack)
+                // from one pile to another, exposing the hidden card below."
+                // c is the visible top card being moved, NOT the hidden card.
+                if let Some(from_pile) = find_card_pile(state, card) {
+                    if let Some(to_pile) = find_target_pile(state, card) {
+                        state.pile_to_pile(card, from_pile, to_pile);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
             }
+        };
+
+        if !applied {
+            self.error_message = Some(
+                "Could not apply move (no valid target). Recomputing...".to_string(),
+            );
+            // Bump the retry counter to get different RNG on next solver call
+            if let AppPhase::Playing { recommendation, .. } = &mut self.phase {
+                *recommendation = None;
+            }
+            self.compute_recommendation();
+            return false;
         }
 
         // Clear recommendation
@@ -348,7 +382,7 @@ impl App {
                     move_count,
                 };
                 self.session_wins += 1;
-                return;
+                return true;
             }
         }
 
@@ -361,11 +395,12 @@ impl App {
                 ..
             }
         ) {
-            return; // Wait for reveal input
+            return true; // Wait for reveal input
         }
 
         // Auto-compute next recommendation
         self.compute_recommendation();
+        true
     }
 
     /// Check if any pile needs a face-down card revealed.
@@ -394,7 +429,8 @@ impl App {
             *solving = true;
         }
 
-        let rec = self.solver.recommend(&state);
+        self.solver_call_count += 1;
+        let rec = self.solver.recommend(&state, self.solver_call_count);
 
         if let AppPhase::Playing {
             recommendation,
@@ -406,27 +442,121 @@ impl App {
             *solving = false;
         }
 
-        // If no recommendation and no reveal pending, game might be stuck
+        // If no recommendation, don't auto-game-over — let the player draw or recompute
         if let AppPhase::Playing {
             recommendation,
             awaiting_reveal,
-            state,
             ..
         } = &self.phase
         {
-            if recommendation.is_none() && awaiting_reveal.is_none() && !state.is_won() {
-                let move_count = state.move_count();
-                self.phase = AppPhase::GameOver {
-                    won: false,
-                    move_count,
-                };
-                self.session_losses += 1;
+            if recommendation.is_none() && awaiting_reveal.is_none() {
+                self.error_message = Some(
+                    "No valid move found. Press 'r' to recompute, 'd' to draw, or 'g' to give up."
+                        .to_string(),
+                );
             }
         }
     }
 
     fn handle_undo(&mut self) {
-        self.error_message = Some("Undo not yet implemented".to_string());
+        let last_move = match &mut self.phase {
+            AppPhase::Playing { state, .. } => {
+                if state.move_history.is_empty() {
+                    self.error_message = Some("Nothing to undo.".to_string());
+                    return;
+                }
+                state.move_history.pop().unwrap()
+            }
+            _ => return,
+        };
+        self.undo_game_move(last_move);
+        if let AppPhase::Playing { recommendation, .. } = &mut self.phase {
+            *recommendation = None;
+        }
+        self.error_message = Some("Undid last move.".to_string());
+    }
+
+    fn undo_game_move(&mut self, game_move: GameMove) {
+        let state = match &mut self.phase {
+            AppPhase::Playing { state, .. } => state,
+            _ => return,
+        };
+        match game_move {
+            GameMove::WasteToFoundation(card) => {
+                let suit = card.suit() as usize;
+                state.foundations[suit] -= 1;
+                state.waste.push(card);
+            }
+            GameMove::WasteToPile(card, pile_idx) => {
+                let pile = &mut state.tableau[pile_idx as usize];
+                pile.face_up.pop();
+                state.waste.push(card);
+            }
+            GameMove::PileToFoundation(card, from_pile) => {
+                let suit = card.suit() as usize;
+                state.foundations[suit] -= 1;
+                state.tableau[from_pile as usize].face_up.push(card);
+            }
+            GameMove::PileToPile(card, from_pile, to_pile) => {
+                // Find where the moved sub-stack starts in to_pile
+                let to = &state.tableau[to_pile as usize];
+                let pos = to.face_up.iter().position(|c| c.value() == card.value());
+                if let Some(pos) = pos {
+                    let moved: Vec<Card> = state.tableau[to_pile as usize].face_up[pos..].to_vec();
+                    state.tableau[to_pile as usize].face_up.truncate(pos);
+                    state.tableau[from_pile as usize].face_up.extend(moved);
+                }
+            }
+            GameMove::FoundationToPile(card, to_pile) => {
+                state.tableau[to_pile as usize].face_up.pop();
+                let suit = card.suit() as usize;
+                state.foundations[suit] += 1;
+            }
+            GameMove::Draw => {
+                // Undo draw: move bottom card back to top
+                if !state.waste.is_empty() {
+                    let bottom = state.waste.remove(0);
+                    state.waste.push(bottom);
+                }
+            }
+            GameMove::Reveal(card, pile_idx) => {
+                // Undo reveal: remove the card from face_up, increment face_down
+                let pile = &mut state.tableau[pile_idx as usize];
+                if pile.face_up.last().map(|c| c.value()) == Some(card.value()) {
+                    pile.face_up.pop();
+                    pile.face_down += 1;
+                    state.known_cards[card.value() as usize] = false;
+                    state
+                        .revealed_hidden
+                        .retain(|(p, c)| !(*p == pile_idx && c.value() == card.value()));
+                }
+            }
+        }
+    }
+
+    fn handle_draw(&mut self) {
+        if let AppPhase::Playing {
+            state,
+            recommendation,
+            ..
+        } = &mut self.phase
+        {
+            state.draw();
+            *recommendation = None;
+            self.error_message = None;
+        }
+        self.compute_recommendation();
+    }
+
+    fn handle_give_up(&mut self) {
+        if let AppPhase::Playing { state, .. } = &self.phase {
+            let move_count = state.move_count();
+            self.phase = AppPhase::GameOver {
+                won: false,
+                move_count,
+            };
+            self.session_losses += 1;
+        }
     }
 
     fn start_new_game(&mut self) {

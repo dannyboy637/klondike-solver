@@ -69,7 +69,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> anyhow::Res
                         // Check for special keys first (only when input buffer is empty)
                         if app.input_buffer.is_empty() {
                             match c {
-                                'q' | 'u' | 'r' | 'n' => {
+                                'u' | 'r' | 'n' | 'd' | 'g' => {
                                     app.on_key(c);
                                     continue;
                                 }

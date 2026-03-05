@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Write;
 
 use lonelybot::card::{Card, N_CARDS};
 use lonelybot::deck::{N_PILES, N_PILE_CARDS};
@@ -74,12 +75,45 @@ impl HopSolver {
         Self { config }
     }
 
+    /// Check if a move is valid from the player's actual visible game state.
+    /// Filters out moves that involve cards not actually accessible.
+    fn is_move_valid_for_player(m: &Move, state: &GameState) -> bool {
+        match m {
+            Move::DeckStack(card) | Move::DeckPile(card) => {
+                // Card must be the current waste top card
+                state
+                    .current_waste_card()
+                    .is_some_and(|w| w.value() == card.value())
+            }
+            Move::PileStack(card) => {
+                // Card must be face-up on top of a tableau pile
+                state
+                    .tableau
+                    .iter()
+                    .any(|pile| pile.top().is_some_and(|top| top.value() == card.value()))
+            }
+            Move::StackPile(card) => {
+                // Card must be on top of a foundation
+                let suit = card.suit() as usize;
+                let rank = card.rank();
+                state.foundations[suit] > 0 && state.foundations[suit] - 1 == rank
+            }
+            Move::Reveal(card) => {
+                // Card must be face-up on a tableau pile (pile-to-pile move)
+                state
+                    .tableau
+                    .iter()
+                    .any(|pile| pile.face_up.iter().any(|c| c.value() == card.value()))
+            }
+        }
+    }
+
     /// Get a move recommendation for the current game state.
     ///
     /// Runs PIMC: for each determinization, builds a Solitaire with
     /// unknown cards randomly assigned, runs pick_moves, and takes
     /// the first recommended move. Majority vote across determinizations.
-    pub fn recommend(&self, state: &GameState) -> Option<Recommendation> {
+    pub fn recommend(&self, state: &GameState, call_id: u32) -> Option<Recommendation> {
         let unknowns = state.unknown_cards();
         if unknowns.is_empty() && state.waste.is_empty() && state.foundation_total() == 52 {
             return None; // game won
@@ -88,10 +122,42 @@ impl HopSolver {
         let mut vote_map: HashMap<String, (u32, Option<Move>)> = HashMap::new();
         let mut draw_votes: u32 = 0;
         let mut no_move_count: u32 = 0;
+        let mut invalid_count: u32 = 0;
         let total = self.config.n_determinizations;
 
+        // Open debug log (append mode)
+        let mut log = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/assistant_debug.log")
+            .ok();
+
+        if let Some(ref mut f) = log {
+            let _ = writeln!(
+                f,
+                "\n=== recommend() call_id={} move_count={} ===",
+                call_id,
+                state.move_count()
+            );
+            let _ = writeln!(
+                f,
+                "Waste top: {:?}",
+                state.current_waste_card().map(format_card)
+            );
+            for (i, pile) in state.tableau.iter().enumerate() {
+                let tops: Vec<String> = pile.face_up.iter().map(|c| format_card(*c)).collect();
+                let _ = writeln!(
+                    f,
+                    "  P{}: {} down, face_up=[{}]",
+                    i + 1,
+                    pile.face_down,
+                    tops.join(", ")
+                );
+            }
+        }
+
         for d in 0..total {
-            let rng_seed = 42u64
+            let rng_seed = (call_id as u64)
                 .wrapping_mul(10000)
                 .wrapping_add(state.move_count() as u64 * 100)
                 .wrapping_add(d as u64);
@@ -100,9 +166,22 @@ impl HopSolver {
 
             match result {
                 DeterminizationResult::Move(m) => {
-                    let key = format_move_key(&m);
-                    let entry = vote_map.entry(key).or_insert((0, Some(m)));
-                    entry.0 += 1;
+                    // Validate: is this move actually playable from the real game state?
+                    if Self::is_move_valid_for_player(&m, state) {
+                        let key = format_move_key(&m);
+                        let entry = vote_map.entry(key).or_insert((0, Some(m)));
+                        entry.0 += 1;
+                    } else {
+                        if let Some(ref mut f) = log {
+                            let _ = writeln!(
+                                f,
+                                "  det {}: INVALID move {:?} (card not visible)",
+                                d,
+                                format_move_key(&m)
+                            );
+                        }
+                        invalid_count += 1;
+                    }
                 }
                 DeterminizationResult::Draw => {
                     draw_votes += 1;
@@ -111,6 +190,24 @@ impl HopSolver {
                     no_move_count += 1;
                 }
             }
+        }
+
+        let effective_total = total - no_move_count;
+
+        if let Some(ref mut f) = log {
+            let _ = writeln!(
+                f,
+                "Votes: {:?}",
+                vote_map
+                    .iter()
+                    .map(|(k, (v, _))| format!("{}={}", k, v))
+                    .collect::<Vec<_>>()
+            );
+            let _ = writeln!(
+                f,
+                "Draw={} NoMove={} Invalid={}",
+                draw_votes, no_move_count, invalid_count
+            );
         }
 
         // Find the move with the most votes
@@ -123,24 +220,42 @@ impl HopSolver {
         if let Some((move_votes, lonelybot_move)) = best_move {
             if move_votes >= draw_votes {
                 let desc = format_move_description(lonelybot_move.as_ref(), state);
+                if let Some(ref mut f) = log {
+                    let _ = writeln!(
+                        f,
+                        ">>> Recommend: {} [{}/{}]",
+                        desc, move_votes, effective_total
+                    );
+                }
                 return Some(Recommendation {
                     description: desc,
                     lonelybot_move,
                     is_draw: false,
                     votes: move_votes,
-                    total: total - no_move_count,
+                    total: effective_total,
                 });
             }
         }
 
         if draw_votes > 0 {
+            if let Some(ref mut f) = log {
+                let _ = writeln!(
+                    f,
+                    ">>> Recommend: Draw [{}/{}]",
+                    draw_votes, effective_total
+                );
+            }
             return Some(Recommendation {
                 description: "Draw next card".to_string(),
                 lonelybot_move: None,
                 is_draw: true,
                 votes: draw_votes,
-                total: total - no_move_count,
+                total: effective_total,
             });
+        }
+
+        if let Some(ref mut f) = log {
+            let _ = writeln!(f, ">>> No recommendation (all NoMove/Invalid)");
         }
 
         // No moves available
@@ -334,16 +449,11 @@ fn replay_moves(game: &mut Solitaire, state: &GameState) -> bool {
                 game.do_move(&m);
             }
             crate::game_state::GameMove::PileToPile(card, _from, _to) => {
-                // In lonelybot, pile-to-pile isn't a direct Move variant.
-                // It's handled via the visible pile state.
-                // We need to figure out what Move variant this maps to.
-                // Actually, lonelybot doesn't have a PileToPile move!
-                // Pile-to-pile moves in lonelybot are implicit through
-                // the top_mask / visible_mask system.
-                // For now, skip — the determinized game should still work
-                // because the state is built from scratch.
-                // TODO: handle this properly if needed
-                let _ = card;
+                // In Lonelybot, pile-to-pile is Move::Reveal(card) — it moves
+                // the card (and sub-stack) from one pile to another, revealing
+                // the hidden card below on the source pile.
+                let m = Move::Reveal(*card);
+                game.do_move(&m);
             }
             crate::game_state::GameMove::FoundationToPile(card, _pile) => {
                 let m = Move::StackPile(*card);
@@ -407,7 +517,16 @@ fn format_move_description(m: Option<&Move>, state: &GameState) -> String {
                 suit_sym
             )
         }
-        Move::Reveal(_card) => "Flip face-down card".to_string(),
+        Move::Reveal(card) => {
+            let pile_num = find_card_pile(state, *card)
+                .map(|p| format!("pile {}", p + 1))
+                .unwrap_or_else(|| "tableau".to_string());
+            format!(
+                "Move {} from {} → another pile (reveal hidden)",
+                format_card(*card),
+                pile_num
+            )
+        }
     }
 }
 

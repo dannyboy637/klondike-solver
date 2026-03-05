@@ -292,7 +292,7 @@ fn render_recommendation(f: &mut Frame, area: Rect, app: &App) {
             Span::styled(
                 &rec.description,
                 Style::default()
-                    .fg(Color::White)
+                    .fg(Color::Reset)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("  "),
@@ -332,7 +332,7 @@ fn render_input(f: &mut Frame, area: Rect, app: &App) {
         )
     } else {
         format!(
-            "Enter/y=confirm  [card]=reveal  u=undo  r=recompute  q=quit  > {}",
+            "Enter=confirm  d=draw  u=undo  r=recompute  n=new  g=give up  Esc=quit  > {}",
             app.input_buffer
         )
     };
@@ -360,7 +360,7 @@ fn render_game_over(f: &mut Frame, area: Rect, won: bool, app: &App) {
             Style::default().fg(color).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from("Press 'q' to quit or 'n' for new game."),
+        Line::from("Press Esc to quit or 'n' for new game."),
     ])
     .block(Block::default().borders(Borders::ALL).title("Result"))
     .wrap(Wrap { trim: false });
@@ -403,7 +403,7 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
             app.session_wins, app.session_losses
         )),
         Span::raw("│"),
-        Span::styled(" q=quit  ?=help ", Style::default().fg(Color::DarkGray)),
+        Span::styled(" n=new  Esc=quit ", Style::default().fg(Color::DarkGray)),
     ]))
     .block(Block::default().borders(Borders::ALL));
 

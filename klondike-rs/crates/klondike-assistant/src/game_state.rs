@@ -54,7 +54,7 @@ pub struct GameState {
     /// Move history for undo.
     pub move_history: Vec<GameMove>,
     /// Set of all known card locations (value → true if we know where it is).
-    known_cards: [bool; N_CARDS as usize],
+    pub known_cards: [bool; N_CARDS as usize],
     /// Cards that were originally face-down but have been revealed during play.
     /// Maps (pile_index, original_position_from_bottom) → Card.
     pub revealed_hidden: Vec<(u8, Card)>,
@@ -183,7 +183,6 @@ impl GameState {
 
     /// Apply a move: move sub-stack from one pile to another.
     /// `card` is the bottom card of the sub-stack being moved.
-    #[allow(dead_code)]
     pub fn pile_to_pile(&mut self, card: Card, from_pile: u8, to_pile: u8) {
         let from = &self.tableau[from_pile as usize];
         let pos = from.face_up.iter().position(|c| c.value() == card.value());

@@ -2,10 +2,15 @@
 name = "klondike-assistant"
 version = "0.1.0"
 edition = "2021"
+default-run = "assistant"
 
 [[bin]]
 name = "assistant"
 path = "src/main.rs"
+
+[[bin]]
+name = "dump_deal"
+path = "src/bin/dump_deal.rs"
 
 [dependencies]
 lonelybot = { workspace = true }
