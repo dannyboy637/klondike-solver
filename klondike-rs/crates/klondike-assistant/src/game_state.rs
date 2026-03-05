@@ -44,12 +44,7 @@ pub struct GameState {
     /// Full known stock order (from initial cycle). Indices go left-to-right
     /// as the user sees them when cycling: first element is the first card drawn.
     pub stock_order: Vec<Card>,
-    /// Current position in the stock (0 = nothing drawn yet after a reset,
-    /// stock_order.len() = all drawn, wraps on further draws).
-    pub stock_pos: usize,
-    /// Number of complete passes through the stock.
-    pub stock_passes: u8,
-    /// Cards currently in the waste pile (subset of stock_order), top is last.
+    /// Cards currently in the waste pile (subset of stock_order).
     pub waste: Vec<Card>,
     /// Move history for undo.
     pub move_history: Vec<GameMove>,
@@ -58,6 +53,13 @@ pub struct GameState {
     /// Cards that were originally face-down but have been revealed during play.
     /// Maps (pile_index, original_position_from_bottom) → Card.
     pub revealed_hidden: Vec<(u8, Card)>,
+    /// The initial face-up cards dealt to each tableau pile at game start.
+    /// Used by the solver to reconstruct the deal array even after the card has moved.
+    pub initial_face_up: [Card; N_PILES as usize],
+    /// Current waste index. Points to the current top-of-waste card.
+    /// After full cycling, starts at waste.len()-1 (last card = stock[23]).
+    /// Draw advances: wraps to 0 on overflow, matching Lonelybot's deal_once.
+    pub waste_idx: usize,
 }
 
 impl Pile {
@@ -112,19 +114,20 @@ impl GameState {
         // After the user cycles through the stock in the real game,
         // all 24 cards are in the waste (draw-1).
         // We model this as: waste contains all stock cards (cycled),
-        // with stock_pos pointing to current accessible card.
+        // with waste_idx pointing to current accessible card.
         let waste = stock_cards.clone();
+        let waste_idx = if waste.is_empty() { 0 } else { waste.len() - 1 };
 
         Self {
             foundations: [0; N_SUITS as usize],
             tableau,
             stock_order: stock_cards,
-            stock_pos: waste.len(), // fully cycled = all in waste
-            stock_passes: 1,
             waste,
             move_history: Vec::new(),
             known_cards,
             revealed_hidden: Vec::new(),
+            initial_face_up: *tableau_cards,
+            waste_idx,
         }
     }
 
@@ -133,38 +136,54 @@ impl GameState {
         if self.waste.is_empty() {
             return None;
         }
-        // In draw-1, the top of waste is the last element
-        self.waste.last().copied()
+        Some(self.waste[self.waste_idx])
     }
 
     /// Draw: advance to the next stock card.
-    /// In draw-1, this cycles through the waste pile.
+    /// In draw-1 after full cycling, this matches Lonelybot's deal_once:
+    /// offset cycles 0, 1, 2, ..., len-1, then wraps back to 0.
     pub fn draw(&mut self) {
-        // In the real game after initial cycle, "draw" means dealing through
-        // the waste pile again. We model this by rotating the waste.
         if self.waste.is_empty() {
             return;
         }
 
-        // Take the top card, move it to the bottom
-        let top = self.waste.pop().unwrap();
-        self.waste.insert(0, top);
+        // Advance waste_idx, wrapping around (matches Lonelybot deal_once cycling)
+        self.waste_idx = (self.waste_idx + 1) % self.waste.len();
 
         self.move_history.push(GameMove::Draw);
+    }
+
+    /// Remove the current waste top card, adjusting waste_idx.
+    /// After removal, waste_idx points to the card that was "below" the removed one
+    /// (the previous card in cycling order). If waste becomes empty, waste_idx = 0.
+    fn remove_waste_card(&mut self, card: Card) {
+        if let Some(pos) = self.waste.iter().position(|c| c.value() == card.value()) {
+            self.waste.remove(pos);
+            if self.waste.is_empty() {
+                self.waste_idx = 0;
+            } else if pos <= self.waste_idx {
+                // Card was at or before current index — shift back, wrapping
+                if self.waste_idx == 0 {
+                    self.waste_idx = self.waste.len() - 1;
+                } else {
+                    self.waste_idx -= 1;
+                }
+            }
+            // If pos > waste_idx, no adjustment needed
+        }
     }
 
     /// Apply a move: waste card to foundation.
     pub fn waste_to_foundation(&mut self, card: Card) {
         let suit = card.suit() as usize;
         self.foundations[suit] = card.rank() + 1;
-        // Remove from waste
-        self.waste.retain(|c| c.value() != card.value());
+        self.remove_waste_card(card);
         self.move_history.push(GameMove::WasteToFoundation(card));
     }
 
     /// Apply a move: waste card to tableau pile.
     pub fn waste_to_pile(&mut self, card: Card, pile_idx: u8) {
-        self.waste.retain(|c| c.value() != card.value());
+        self.remove_waste_card(card);
         self.tableau[pile_idx as usize].face_up.push(card);
         self.move_history
             .push(GameMove::WasteToPile(card, pile_idx));
@@ -198,7 +217,7 @@ impl GameState {
     /// Apply a move: foundation card back to tableau.
     pub fn foundation_to_pile(&mut self, card: Card, to_pile: u8) {
         let suit = card.suit() as usize;
-        self.foundations[suit] -= 1;
+        self.foundations[suit] = self.foundations[suit].saturating_sub(1);
         self.tableau[to_pile as usize].face_up.push(card);
         self.move_history
             .push(GameMove::FoundationToPile(card, to_pile));

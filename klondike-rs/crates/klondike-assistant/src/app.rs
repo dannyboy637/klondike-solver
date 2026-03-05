@@ -357,9 +357,8 @@ impl App {
         };
 
         if !applied {
-            self.error_message = Some(
-                "Could not apply move (no valid target). Recomputing...".to_string(),
-            );
+            self.error_message =
+                Some("Could not apply move (no valid target). Recomputing...".to_string());
             // Bump the retry counter to get different RNG on next solver call
             if let AppPhase::Playing { recommendation, .. } = &mut self.phase {
                 *recommendation = None;
@@ -470,9 +469,18 @@ impl App {
             _ => return,
         };
         self.undo_game_move(last_move);
-        if let AppPhase::Playing { recommendation, .. } = &mut self.phase {
+        if let AppPhase::Playing {
+            recommendation,
+            awaiting_reveal,
+            ..
+        } = &mut self.phase
+        {
             *recommendation = None;
+            *awaiting_reveal = None;
         }
+        // After undo, check if a pile now needs a reveal (e.g., undoing a reveal
+        // leaves the pile with face_down > 0 and empty face_up)
+        self.check_for_reveals();
         self.error_message = Some("Undid last move.".to_string());
     }
 
@@ -484,17 +492,30 @@ impl App {
         match game_move {
             GameMove::WasteToFoundation(card) => {
                 let suit = card.suit() as usize;
-                state.foundations[suit] -= 1;
-                state.waste.push(card);
+                state.foundations[suit] = state.foundations[suit].saturating_sub(1);
+                // Re-insert card at waste_idx+1 position (it was the top card when played)
+                let insert_pos = if state.waste.is_empty() {
+                    0
+                } else {
+                    state.waste_idx + 1
+                };
+                state.waste.insert(insert_pos, card);
+                state.waste_idx = insert_pos;
             }
             GameMove::WasteToPile(card, pile_idx) => {
                 let pile = &mut state.tableau[pile_idx as usize];
                 pile.face_up.pop();
-                state.waste.push(card);
+                let insert_pos = if state.waste.is_empty() {
+                    0
+                } else {
+                    state.waste_idx + 1
+                };
+                state.waste.insert(insert_pos, card);
+                state.waste_idx = insert_pos;
             }
             GameMove::PileToFoundation(card, from_pile) => {
                 let suit = card.suit() as usize;
-                state.foundations[suit] -= 1;
+                state.foundations[suit] = state.foundations[suit].saturating_sub(1);
                 state.tableau[from_pile as usize].face_up.push(card);
             }
             GameMove::PileToPile(card, from_pile, to_pile) => {
@@ -513,10 +534,13 @@ impl App {
                 state.foundations[suit] += 1;
             }
             GameMove::Draw => {
-                // Undo draw: move bottom card back to top
+                // Undo draw: decrement waste_idx (reverse of draw's increment)
                 if !state.waste.is_empty() {
-                    let bottom = state.waste.remove(0);
-                    state.waste.push(bottom);
+                    if state.waste_idx == 0 {
+                        state.waste_idx = state.waste.len() - 1;
+                    } else {
+                        state.waste_idx -= 1;
+                    }
                 }
             }
             GameMove::Reveal(card, pile_idx) => {

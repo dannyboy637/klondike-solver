@@ -86,11 +86,17 @@ impl HopSolver {
                     .is_some_and(|w| w.value() == card.value())
             }
             Move::PileStack(card) => {
-                // Card must be face-up on top of a tableau pile
-                state
-                    .tableau
-                    .iter()
-                    .any(|pile| pile.top().is_some_and(|top| top.value() == card.value()))
+                // Card must be face-up on top of a tableau pile AND foundation must be ready
+                // foundations[suit] stores count: 0=empty, 1=A placed, etc.
+                // For PileStack(card), foundation must have rank-1 already (i.e., count == rank)
+                let suit = card.suit() as usize;
+                let rank = card.rank();
+                let foundation_ready = state.foundations[suit] == rank;
+                foundation_ready
+                    && state
+                        .tableau
+                        .iter()
+                        .any(|pile| pile.top().is_some_and(|top| top.value() == card.value()))
             }
             Move::StackPile(card) => {
                 // Card must be on top of a foundation
@@ -294,8 +300,10 @@ impl HopSolver {
         }
 
         // Now run pick_moves on the determinized + replayed game
-        // Shuffle hidden cards for the solver's internal randomization
-        game.get_hidden_mut().shuffle_all(&mut rng);
+        // P0.5 fix: Do NOT call shuffle_all — it corrupts known face-up anchors
+        // stored in Hidden. The unknown cards were already randomly assigned when
+        // building the deal array (shuffled_unknowns). pick_moves handles its
+        // own internal randomization.
 
         let signal = DefaultTerminateSignal;
         let result = pick_moves(
@@ -340,25 +348,15 @@ fn build_deal_array(state: &GameState, shuffled_unknowns: &[Card]) -> Option<Car
     let mut unknown_idx = 0;
 
     for pile_idx in 0..N_PILES as usize {
-        let pile = &state.tableau[pile_idx];
         let start = pile_idx * (pile_idx + 1) / 2;
 
-        // The initial face-up card (the one dealt at game start) is the LAST
-        // card in this pile's hidden_piles range. It's the first face-up card
-        // the user entered during setup. If the pile still has its original
-        // face-up card, it's face_up[0]. If the original was moved away and
-        // cards were revealed, we need to reconstruct.
-
         // For the initial deal, we need:
-        // - positions start..start+pile_idx: face-down cards
-        // - position start+pile_idx: initial face-up card
+        // - positions start..start+pile_idx: face-down cards (bottom-to-top in hidden pile)
+        // - position start+pile_idx: initial face-up card (anchor)
 
-        // Face-down cards: use revealed_hidden for known ones, unknowns for rest
         let face_down_count = pile_idx; // initial face-down count for pile i
-        let mut assigned_down = 0;
 
-        // Check if any face-down cards in this pile have been revealed during play
-        // and are now known (they were in the original hidden pile)
+        // Collect revealed cards for this pile (in reveal order = top-first)
         let revealed_for_pile: Vec<Card> = state
             .revealed_hidden
             .iter()
@@ -366,46 +364,30 @@ fn build_deal_array(state: &GameState, shuffled_unknowns: &[Card]) -> Option<Car
             .map(|(_, c)| *c)
             .collect();
 
-        // Place known revealed cards first (in order they were revealed,
-        // meaning from top of hidden pile = end of range)
-        // The hidden pile stores cards bottom-to-top, reveals happen top-first
-        // So revealed cards fill from the end of the hidden range backward
-        for card in &revealed_for_pile {
-            if assigned_down < face_down_count {
-                deal[start + assigned_down] = *card;
-                assigned_down += 1;
-            }
+        // Hidden pile stores bottom-to-top. Reveals happen top-first.
+        // So first-revealed card was at the TOP of hidden pile = highest index.
+        // Place revealed cards in reverse: first-revealed goes to highest index.
+        let n_revealed = revealed_for_pile.len().min(face_down_count);
+        for (i, card) in revealed_for_pile.iter().take(n_revealed).enumerate() {
+            // First revealed (i=0) goes to start + face_down_count - 1 (top of hidden)
+            // Second revealed (i=1) goes to start + face_down_count - 2, etc.
+            deal[start + face_down_count - 1 - i] = *card;
         }
 
-        // Fill remaining face-down positions with unknowns
-        while assigned_down < face_down_count {
+        // Fill remaining face-down positions (bottom of hidden pile) with unknowns
+        let remaining_unknown_slots = face_down_count - n_revealed;
+        for i in 0..remaining_unknown_slots {
             if unknown_idx >= shuffled_unknowns.len() {
                 return None;
             }
-            deal[start + assigned_down] = shuffled_unknowns[unknown_idx];
+            deal[start + i] = shuffled_unknowns[unknown_idx];
             unknown_idx += 1;
-            assigned_down += 1;
         }
 
-        // Initial face-up card (the bottom of the visible stack).
-        // This is the card the user entered during setup for this pile.
-        // If the pile is not empty, it's the first face-up card.
-        // If the pile is empty (original card moved + all hidden revealed),
-        // we still need SOME card here for the deal to be valid.
-        // Use the first card that was originally dealt face-up here.
-        if !pile.face_up.is_empty() {
-            deal[start + face_down_count] = pile.face_up[0];
-        } else if !revealed_for_pile.is_empty() {
-            // Pile is empty now. The original face-up card was moved.
-            // For the deal array, we can use ANY card that was originally
-            // in this pile position. Use the last revealed card as a proxy.
-            // This works because we replay moves to reach current state.
-            deal[start + face_down_count] = *revealed_for_pile.last().unwrap();
-        } else if unknown_idx < shuffled_unknowns.len() {
-            // Fallback: use an unknown (shouldn't normally happen)
-            deal[start + face_down_count] = shuffled_unknowns[unknown_idx];
-            unknown_idx += 1;
-        }
+        // Anchor slot: always use initial_face_up (P0.4 fix)
+        // This is correct even if the card has since been moved away,
+        // because replay_moves will recreate the actual current state.
+        deal[start + face_down_count] = state.initial_face_up[pile_idx];
     }
 
     // Stock cards (positions 28..52)
@@ -460,11 +442,24 @@ fn replay_moves(game: &mut Solitaire, state: &GameState) -> bool {
                 game.do_move(&m);
             }
             crate::game_state::GameMove::Draw => {
+                // Lonelybot's deal_once has a two-step reset: when all cards are
+                // in waste (offset == len), the first deal_once resets offset to 0
+                // (no current waste card), and a second deal_once advances to the
+                // first card. The assistant's draw model skips the empty reset state
+                // and goes directly to the next card. So after deal_once, if we
+                // landed on the reset state, call deal_once again.
                 game.get_deck_mut().deal_once();
+                let deck = game.get_deck();
+                if deck.get_offset() == 0 && !deck.get_deck().is_empty() {
+                    game.get_deck_mut().deal_once();
+                }
             }
-            crate::game_state::GameMove::Reveal(card, _pile) => {
-                let m = Move::Reveal(*card);
-                game.do_move(&m);
+            crate::game_state::GameMove::Reveal(_card, _pile) => {
+                // P0.2 fix: Skip Reveal in replay. Card reveals happen automatically
+                // in Lonelybot when the covering card is moved away (via PileToPile
+                // which maps to Move::Reveal). The GameMove::Reveal is the app's
+                // explicit tracking of the user flipping a face-down card — Lonelybot
+                // handles this internally.
             }
         }
     }

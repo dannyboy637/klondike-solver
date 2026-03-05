@@ -1,6 +1,6 @@
 # Current Context — Living Research Document
 
-Last updated: 2026-03-04 (Rust rebuild Phase R0 complete — workspace skeleton, tch-rs MPS verified)
+Last updated: 2026-03-05 (Klondike Assistant deep bug fix — solver determinization pipeline rewrite)
 
 ---
 
@@ -516,6 +516,47 @@ Phases R1, R3, R4, R6 use 2 parallel Claude Code team agents (worktree isolation
 | R7 | No | profiling + polish (iterative) | — |
 
 ### Full plan: `specs/rust-rebuild-plan.md`
+
+## Klondike Assistant — TUI Move Advisor (NEW, 2026-03-05)
+
+### What It Is
+Interactive terminal UI that sits alongside the browser during 1xbet play. User inputs cards via keyboard, solver recommends moves using HOP (54.96% win rate, nt=500/lim=100).
+
+### Crate: `klondike-rs/crates/klondike-assistant/`
+- `input.rs` — card code parser ("ah"→A♥, "ts"→10♠), formatter, suit helpers
+- `game_state.rs` — partial-information state: Pile (face_down + face_up), GameMove, waste/stock tracking
+- `solver.rs` — HOP solver with PIMC determinization (50 determinizations, majority vote)
+- `render.rs` — ratatui TUI: foundations, tableau, stock/waste, recommendation with confidence
+- `app.rs` — state machine: Setup → StockCycle → Playing → GameOver
+- `main.rs` — crossterm/ratatui event loop
+- `tests/solver_integration.rs` — deal extraction parity tests
+
+### User Flow
+1. **Setup**: input 7 face-up tableau cards (e.g., `qd ah 3s 6s jc 5c 6c`)
+2. **Stock Cycle**: draw all 24 stock cards in real game, type them (e.g., `4d 7h ks 2c ...`)
+3. **Playing**: solver recommends moves, user confirms with Enter. Only input needed: revealed hidden cards (~20 per game)
+
+### Solver Config
+- Uses same HOP config as 54.96% benchmark: `nt=500, lim=100, max_moves=500`
+- No post-replay shuffle — unknowns shuffled before deal construction
+- Stock cycling: solver knows full stock order from Phase 2 input
+- 50 PIMC determinizations → majority vote → recommendation with confidence score
+
+### Deep Bug Fix (Session 19, 2026-03-05)
+6 P0 + 2 P1 bugs fixed in solver determinization pipeline:
+- **Draw model rewrite**: replaced Vec rotation with `waste_idx` index matching Lonelybot's deal_once cycling. Replay handles Lonelybot's two-step reset (offset→0 then →1).
+- **Reveal replay fix**: GameMove::Reveal skipped in replay (not a Lonelybot move)
+- **Deal reconstruction**: reversed revealed card placement order, added `initial_face_up: [Card; 7]` for reliable anchor reconstruction
+- **shuffle_all removal**: was corrupting known face-up anchors post-replay
+- **Move validity**: PileStack now checks foundation readiness
+- **Undo fixes**: restores awaiting_reveal state, foundation underflow guards (saturating_sub)
+- Removed dead fields (stock_pos, stock_passes)
+
+### Next Steps
+1. Live test 2-3 real 1xbet games to validate fixes
+2. Add integration tests for draw → replay → solve round-trip
+3. Neural PIMC solver backend (when model is trained)
+4. Session logging + bankroll tracking
 
 ## Additional Research to Investigate
 - POMCP (Silver & Veness, 2010) and POMCPOW variants
