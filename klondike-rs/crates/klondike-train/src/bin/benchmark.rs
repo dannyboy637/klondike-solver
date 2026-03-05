@@ -99,6 +99,7 @@ fn play_pimc_game(
     max_moves: u32,
 ) -> bool {
     let mut env = KlondikeEnv::new(seed, draw_step);
+    env.cycle_deck();
     let mut move_num: u32 = 0;
     let mut seen_states = HashSet::new();
 
@@ -134,6 +135,7 @@ fn play_greedy_game(
     max_moves: u32,
 ) -> bool {
     let mut env = KlondikeEnv::new(seed, draw_step);
+    env.cycle_deck();
     let mut move_count: u32 = 0;
     let mut seen_states = HashSet::new();
 

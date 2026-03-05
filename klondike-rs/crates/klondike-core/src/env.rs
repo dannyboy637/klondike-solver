@@ -151,6 +151,25 @@ impl KlondikeEnv {
     pub fn game_mut(&mut self) -> &mut Solitaire {
         &mut self.game
     }
+
+    /// Cycle through the entire stock pile, dealing all cards to waste.
+    ///
+    /// In draw-1, this reveals all stock cards so they appear as LOC_WASTE
+    /// (visible) in the encoding instead of LOC_UNKNOWN. This matches what
+    /// a human player would do at the start of a game — flip through the
+    /// entire deck to see what's available before making decisions.
+    ///
+    /// For the HOP solver this is a no-op in terms of search behavior
+    /// (it already sees all stock cards), but for neural network encoding
+    /// it provides much richer information.
+    pub fn cycle_deck(&mut self) {
+        let deck = self.game.get_deck_mut();
+        // Deal until stock portion is empty (all cards in waste).
+        // In draw-1 with 24 deck cards, this takes ~23 deal_once calls.
+        while !deck.get_deck().is_empty() {
+            deck.deal_once();
+        }
+    }
 }
 
 #[cfg(test)]

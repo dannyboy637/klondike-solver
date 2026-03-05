@@ -51,6 +51,12 @@ pub fn play_hop_game(seed: u64, config: &HopConfig) -> (bool, u32) {
     let cards = default_shuffle(seed);
     let mut game = Solitaire::new(&cards, config.draw_step);
 
+    // Cycle through the entire stock to reveal all deck cards.
+    // In draw-1 this is free information — matches human play.
+    while !game.get_deck().get_deck().is_empty() {
+        game.get_deck_mut().deal_once();
+    }
+
     let mut move_count: u32 = 0;
     let mut turn_count: u32 = 0;
     let mut seen_states = HashSet::new();

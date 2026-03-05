@@ -78,6 +78,11 @@ pub fn play_game(config: &SelfPlayConfig, eval_fn: &dyn EvalFn, seed: u64) -> Ga
     let start = Instant::now();
     let mut env = KlondikeEnv::new(seed, config.draw_step);
 
+    // Cycle through the entire stock to reveal all deck cards.
+    // In draw-1 this is free information and gives the neural network
+    // encoding visibility of all stock cards (LOC_WASTE vs LOC_UNKNOWN).
+    env.cycle_deck();
+
     let mut observations = Vec::new();
     let mut policies = Vec::new();
     let mut legal_masks = Vec::new();
