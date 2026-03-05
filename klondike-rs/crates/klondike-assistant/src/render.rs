@@ -13,7 +13,7 @@ fn card_style(card: lonelybot::card::Card) -> Style {
     if is_red(card) {
         Style::default().fg(Color::Red)
     } else {
-        Style::default().fg(Color::White)
+        Style::default().fg(Color::Black)
     }
 }
 
@@ -181,7 +181,7 @@ fn render_foundations_and_stock(f: &mut Frame, area: Rect, state: &GameState) {
             spans.push(Span::raw("  "));
         }
         let label = foundation_label(suit, state.foundations[suit as usize]);
-        let color = if suit < 2 { Color::Red } else { Color::White };
+        let color = if suit < 2 { Color::Red } else { Color::Black };
         spans.push(Span::styled(label, Style::default().fg(color)));
     }
 

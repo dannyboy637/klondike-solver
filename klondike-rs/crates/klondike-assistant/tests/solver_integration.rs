@@ -3,6 +3,13 @@ use lonelybot::card::Card;
 use lonelybot::deck::{N_PILES, N_PILE_CARDS};
 use lonelybot::shuffler::default_shuffle;
 
+const RANKS: [char; 13] = ['a','2','3','4','5','6','7','8','9','t','j','q','k'];
+const SUITS: [char; 4] = ['h','d','c','s'];
+
+fn card_code(card: Card) -> String {
+    format!("{}{}", RANKS[card.rank() as usize], SUITS[card.suit() as usize])
+}
+
 // We need access to the assistant's internals.
 // Since assistant is a binary crate, we test through its public API indirectly
 // by reimplementing the key logic here.
@@ -54,6 +61,24 @@ fn test_deal_extraction_seed42() {
             card.value()
         );
     }
+}
+
+#[test]
+fn test_print_deal_for_assistant() {
+    // Prints deal in assistant card-code format for manual testing.
+    // Run with: cargo test -p klondike-assistant -- --nocapture test_print_deal
+    let seed = 42;
+    let cards = default_shuffle(seed);
+    let tableau = extract_tableau_faceup(&cards);
+    let stock = extract_stock(&cards);
+
+    let tableau_codes: Vec<String> = tableau.iter().map(|c| card_code(*c)).collect();
+    let stock_codes: Vec<String> = stock.iter().map(|c| card_code(*c)).collect();
+
+    eprintln!("\n=== Seed {} deal (copy-paste into assistant) ===", seed);
+    eprintln!("Tableau: {}", tableau_codes.join(" "));
+    eprintln!("Stock:   {}", stock_codes.join(" "));
+    eprintln!("===\n");
 }
 
 #[test]
