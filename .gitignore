@@ -33,6 +33,9 @@ Thumbs.db
 Cargo.lock
 klondike-rs/target/
 
+# Debug logs
+**/assistant_debug.log
+
 # Maturin build
 klondike_env/*.so
 klondike_env/*.dylib
