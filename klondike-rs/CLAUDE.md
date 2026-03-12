@@ -38,12 +38,25 @@
 5-crate workspace: klondike-core (env/encoding/actions) -> klondike-search (MCTS/PIMC) -> klondike-nn (tch-rs model) -> klondike-eval (stats/benchmark) -> klondike-train (buffer/selfplay/pipeline/CLI)
 Lonelybot is a direct path dependency — no PyO3, no FFI overhead.
 
+## Windows Build (PC — RTX 4060 Ti, Ryzen 5700X)
+- **MUST use batch scripts** that call `vcvarsall.bat x64` — Git Bash `/usr/bin/link.exe` (GNU coreutils) shadows MSVC linker
+- Batch scripts in repo root: `build.bat`, `test.bat`, `train.bat`
+- Python 3.12 venv (NOT 3.14 — too new for PyTorch)
+- Key env vars: `LIBTORCH_USE_PYTORCH=1`, `LIBTORCH_BYPASS_VERSION_CHECK=1`
+- PATH must include: `.venv\Scripts`, `.cargo\bin`, `.venv\Lib\site-packages\torch\lib`
+- **CUDA issue (unresolved)**: tch 0.23 expects PyTorch 2.10, using nightly 2.12 cu126. Compiles but `tch::Cuda::is_available()` returns false at runtime.
+
+## macOS Build (MacBook — M4 MPS)
+- `LIBTORCH_USE_PYTORCH=1 DYLD_LIBRARY_PATH=../.venv/lib/python3.14/site-packages/torch/lib`
+- MPS device detected and working with PyTorch 2.10
+
 ## Gotchas (discovered during implementation)
 - `hidden.len(pos)` includes topmost hidden card — face-down count = `max(0, hidden.len(pos) - 1)`
 - Pile position normalization must use full pile length (hidden + visible), not just visible cards
 - `cargo clippy --all-targets` fails without LIBTORCH env — use `-p <crate>` to skip tch-rs crates
 - Upstream lonelybot has 2 `unused_must_use` warnings — these are not our code, ignore them
 - tch 0.23 required (not 0.17) for PyTorch 2.10 compatibility
+- **Lonelybot `Hidden::shuffle_all()` no longer exists** at current submodule commit — use `shuffle()` instead (same behavior: global shuffle across all piles)
 - `PileVec = ArrayVec<Card, 13>` — from `lonelybot::standard`
 - **Weight loading**: Python `.pt` (pickle) is NOT compatible with tch-rs `VarStore::load()`. Use `.safetensors` format instead — `VarStore::load()` auto-detects by extension.
 - **tch-rs path naming**: `vs / "blocks" / "0" / "fc1"` (NOT `vs / "blocks.0"` — panics because `.` is treated as path separator)

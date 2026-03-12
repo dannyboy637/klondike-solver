@@ -1,6 +1,6 @@
 # Current Context — Living Research Document
 
-Last updated: 2026-03-04 (Rust rebuild Phase R0 complete — workspace skeleton, tch-rs MPS verified)
+Last updated: 2026-03-05 (Windows PC build working, first training run complete — CUDA detection broken, needs fix)
 
 ---
 
@@ -516,6 +516,32 @@ Phases R1, R3, R4, R6 use 2 parallel Claude Code team agents (worktree isolation
 | R7 | No | profiling + polish (iterative) | — |
 
 ### Full plan: `specs/rust-rebuild-plan.md`
+
+## Windows PC Build & First Training (Session 10)
+
+### Build Environment
+- Windows 11, Ryzen 5700X (16 threads), RTX 4060 Ti (8GB VRAM, CUDA)
+- Python 3.12.10 venv, Rust 1.93.1 (MSVC), MSVC Build Tools 2022
+- Build requires `vcvarsall.bat x64` to set up MSVC environment (Git Bash `link.exe` shadows MSVC linker)
+- Batch scripts (`build.bat`, `test.bat`, `train.bat`) handle environment setup
+
+### Code Fixes for Current Lonelybot
+- `shuffle_all` → `shuffle` in `klondike-core/src/env.rs` and `klondike-search/src/hop.rs`
+- Lonelybot's `Hidden::shuffle()` IS the correct PIMC shuffle (global across all piles)
+
+### BLOCKING ISSUE: CUDA Not Working in tch-rs
+- `tch = "0.23"` expects PyTorch 2.10.0, which isn't available on stable pip
+- Using PyTorch 2.12.0.dev20260304+cu126 (nightly) with `LIBTORCH_BYPASS_VERSION_CHECK=1`
+- Code compiles and runs but `tch::Cuda::is_available()` returns false
+- Python PyTorch CUDA works fine — the issue is specific to tch-rs runtime detection
+- **Training ran on CPU only → ~2% win rate instead of expected ~30%**
+- Fix options: find matching PyTorch version, download standalone libtorch, or downgrade tch
+
+### First Training Run (CPU, suboptimal)
+- 10 iterations, 50 games/iter, 5 det × 200 sims, 256h × 2b model
+- Policy loss: 1.25 → 1.18 (learning), value loss: 0.04 → 0.00 (converging)
+- Win rates: 0-6% self-play, 0-2% eval — far too low (CPU bottleneck)
+- ~6.5s/game average, total ~4 minutes
 
 ## Additional Research to Investigate
 - POMCP (Silver & Veness, 2010) and POMCPOW variants

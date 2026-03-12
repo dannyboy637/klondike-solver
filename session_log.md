@@ -2,6 +2,71 @@
 
 ---
 
+## Session 10 — 2026-03-05: Windows PC Setup, Build, First Training Run
+
+### Environment Setup
+- **Machine**: Windows 11, Ryzen 5700X (16 threads), RTX 4060 Ti (8GB VRAM)
+- Installed Rust 1.93.1 (stable-x86_64-pc-windows-msvc)
+- Installed Python 3.12.10 via winget (Python 3.14 already installed but too new for PyTorch)
+- Created `.venv` with Python 3.12, installed PyTorch CUDA + maturin + numpy + safetensors
+
+### Build Issues Resolved
+1. **GNU `link.exe` shadowing MSVC linker**: Git Bash's `/usr/bin/link.exe` (coreutils) was found first. Fixed by running builds through `build.bat` that calls `vcvarsall.bat x64` to set up proper MSVC environment.
+2. **Windows SDK libs missing**: `kernel32.lib` not found even with MSVC linker. vcvarsall.bat sets up both MSVC tool paths and Windows SDK lib paths.
+3. **`shuffle_all` → `shuffle`**: lonelybot API at current submodule commit only has `shuffle()` on Hidden, not `shuffle_all()`. Fixed in two files:
+   - `crates/klondike-core/src/env.rs:127`
+   - `crates/klondike-search/src/hop.rs:73`
+   - `shuffle()` IS correct — collects all hidden cards globally, shuffles, redistributes (proper PIMC).
+4. **tch 0.23 / PyTorch version mismatch**: tch 0.23 expects PyTorch 2.10.0. PyTorch 2.10 not available on stable pip (cu124 max is 2.6.0). Installed PyTorch 2.12.0.dev20260304+cu126 from nightly. Build succeeds with `LIBTORCH_BYPASS_VERSION_CHECK=1`.
+
+### Build Scripts Created
+- `build.bat` — calls vcvarsall, sets env vars, runs `cargo build --release`
+- `test.bat` — same env, runs `cargo test --all`
+- `train.bat` — same env, runs training with specified config
+- `check_cuda.bat` — runs auto_device test to check CUDA detection
+
+### Test Results
+- All 99 tests passed on first successful run
+- After PyTorch upgrade to nightly 2.12 cu126, klondike-nn tests crash with `STATUS_DLL_NOT_FOUND` (api-ms-win-core-delayload-l1-1-0.dll) — likely needs system restart
+
+### Training Run (CPU-only)
+Ran 10 iterations with config: 50 games/iter, 5 det, 200 sims, 256h x 2b model, batch 512, buffer 200K.
+
+| Iter | SP Win% | Positions | Buffer | P_Loss | V_Loss | Avg Game | Iter |
+|------|---------|-----------|--------|--------|--------|----------|------|
+| 0 | 2.0% | 1,368 | 1,368 | 0.0000 | 0.0000 | 6.5s | 25s |
+| 1 | 0.0% | 1,357 | 2,725 | 1.2487 | 0.0404 | 6.9s | 24s |
+| 2 | 2.0% | 1,423 | 4,148 | 1.2128 | 0.0288 | 6.7s | 23s |
+| 3 | 0.0% | 1,306 | 5,454 | 1.2267 | 0.0137 | 6.3s | 22s |
+| 4 | 4.0% | 2/50 | 6,907 | 1.2044 | 0.0121 | 6.9s | 25s |
+| 5 | 6.0% | 3/50 | 8,412 | 1.1997 | 0.0120 | 7.2s | 27s |
+| 6 | 4.0% | 2/50 | 10,018 | 1.1782 | 0.0072 | 7.7s | 29s |
+| 7 | 0.0% | 0/50 | 11,285 | 1.1919 | 0.0026 | 6.2s | 23s |
+| 8 | 0.0% | 0/50 | 12,572 | 1.1844 | 0.0003 | 6.1s | 23s |
+| 9 | 2.0% | 1/50 | 13,973 | 1.1926 | 0.0037 | 6.5s | 25s |
+
+Eval results: iter 2 = 2.0% (best), iter 5 = 0.0%, iter 8 = 0.0%.
+
+### CRITICAL ISSUE: CUDA Not Detected
+- `tch::Cuda::is_available()` returns `false` — training ran on CPU only
+- Python PyTorch CUDA works fine (`torch.cuda.is_available() == True`, tensor creation on cuda:0 OK)
+- Root cause: tch 0.23 compiled against PyTorch 2.12 nightly headers, but CUDA detection at runtime fails
+- **This explains the low win rates** — CPU inference is too slow for effective MCTS with 200 sims × 5 det
+- Win rates should be ~30%+ with proper CUDA acceleration
+
+### Next Steps (After Restart)
+1. **Fix CUDA detection** (priority #1):
+   - Try installing PyTorch 2.10.0 stable from cu126 channel
+   - Or download standalone libtorch C++ distribution matching tch 0.23
+   - Or downgrade tch to match PyTorch 2.6
+2. Re-run tests (DLL issue may resolve after restart)
+3. Re-run training with CUDA enabled — expect dramatically better win rates
+
+### Git Workflow Question
+User has both MacBook (dev) and Windows PC (training). Need to establish git workflow to avoid confusion between local versions. Recommendation: use feature branches per machine, merge through GitHub.
+
+---
+
 ## Session 9 — 2026-03-04: Rust Rebuild Phase R0 — Workspace Skeleton
 
 ### Decision

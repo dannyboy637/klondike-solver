@@ -6,8 +6,45 @@ use klondike_core::actions::ACTION_SPACE_SIZE;
 use klondike_core::encoding::OBSERVATION_DIM;
 use tch::{nn, Device, Tensor};
 
+/// On Windows, force-load torch_cuda.dll before tch initialization.
+/// The MSVC linker drops torch_cuda.dll from imports since no symbols are directly
+/// referenced. We load it explicitly at runtime before any tch calls.
+/// See: https://github.com/LaurentMazare/tch-rs/issues/921
+#[cfg(target_os = "windows")]
+fn ensure_cuda_loaded() {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        // torch/lib must already be on PATH (set by batch scripts).
+        // Load torch_cuda.dll so the CUDA backend registers with the global context.
+        unsafe {
+            #[link(name = "kernel32")]
+            unsafe extern "system" {
+                fn LoadLibraryA(path: *const u8) -> *mut std::ffi::c_void;
+            }
+            // c10_cuda must load before torch_cuda
+            for dll in &[
+                b"c10_cuda.dll\0" as &[u8],
+                b"torch_cuda.dll\0" as &[u8],
+            ] {
+                let handle = LoadLibraryA(dll.as_ptr());
+                if handle.is_null() {
+                    eprintln!(
+                        "Warning: failed to load {} — CUDA may be unavailable",
+                        std::str::from_utf8(&dll[..dll.len() - 1]).unwrap()
+                    );
+                }
+            }
+        }
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ensure_cuda_loaded() {}
+
 /// Detect the best available device (CUDA > MPS > CPU).
 pub fn auto_device() -> Device {
+    ensure_cuda_loaded();
     if tch::Cuda::is_available() {
         Device::Cuda(0)
     } else if tch::utils::has_mps() {
@@ -171,6 +208,11 @@ mod tests {
 
     #[test]
     fn test_auto_device() {
+        // Force CUDA DLL loading before any tch calls
+        ensure_cuda_loaded();
+        eprintln!("CUDA available: {}", tch::Cuda::is_available());
+        eprintln!("CUDA device count: {}", tch::Cuda::device_count());
+        eprintln!("cuDNN available: {}", tch::Cuda::cudnn_is_available());
         let device = auto_device();
         match device {
             Device::Cpu | Device::Cuda(_) | Device::Mps => {}
