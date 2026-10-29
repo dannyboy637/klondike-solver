@@ -3,14 +3,48 @@
 
 use std::time::Instant;
 
+use klondike_core::actions::ACTION_SPACE_SIZE;
 use klondike_core::encoding::{encode_state, OBSERVATION_DIM};
 use klondike_core::env::KlondikeEnv;
-use klondike_search::eval_fn::UniformEval;
+use klondike_nn::inference::auto_device;
+use klondike_nn::model::{KlondikeNet, NetConfig};
+use klondike_search::eval_fn::{EvalFn, UniformEval};
 use klondike_search::hop::{play_hop_game, HopConfig};
 use klondike_search::mcts::{mcts_search, MctsConfig};
+use klondike_train::inference_server::{create_inference_channel, InferenceServer};
 use klondike_train::selfplay::{play_game, play_games_parallel, SelfPlayConfig};
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
+use tch::{nn, Device, Tensor};
+
+/// Direct batch-1 neural eval (old approach — each thread calls GPU independently).
+struct DirectNeuralEval<'a> {
+    net: &'a KlondikeNet,
+    device: Device,
+}
+
+unsafe impl Sync for DirectNeuralEval<'_> {}
+
+impl EvalFn for DirectNeuralEval<'_> {
+    fn evaluate(&self, env: &KlondikeEnv) -> ([f32; ACTION_SPACE_SIZE], f32) {
+        let obs = env.get_observation();
+        let mask = env.get_legal_mask();
+        let obs_t = Tensor::from_slice(&obs)
+            .reshape([1, OBSERVATION_DIM as i64])
+            .to_device(self.device);
+        let mask_t = Tensor::from_slice(&mask)
+            .reshape([1, ACTION_SPACE_SIZE as i64])
+            .to_device(self.device);
+        let (log_policy, value) = tch::no_grad(|| self.net.forward(&obs_t, Some(&mask_t)));
+        let policy_probs = log_policy.exp();
+        let policy_cpu = policy_probs.to_device(Device::Cpu).squeeze_dim(0);
+        let policy_data: Vec<f32> = Vec::try_from(&policy_cpu).expect("extract");
+        let mut result = [0.0f32; ACTION_SPACE_SIZE];
+        result.copy_from_slice(&policy_data);
+        let val = value.double_value(&[0, 0]) as f32;
+        (result, val)
+    }
+}
 
 fn main() {
     println!("================================================================");
@@ -22,6 +56,7 @@ fn main() {
     bench_selfplay_configs();
     bench_parallel_selfplay();
     bench_hop();
+    bench_neural_batching();
 
     println!("\n================================================================");
     println!("  Benchmark Complete");
@@ -216,4 +251,63 @@ fn bench_hop() {
         elapsed.as_secs_f64() * 1000.0 / n_games as f64,
         elapsed.as_secs_f64()
     );
+}
+
+fn bench_neural_batching() {
+    let device = auto_device();
+    println!("\n--- Neural Batching: Parallelism Scaling (device: {:?}) ---", device);
+
+    let vs = nn::VarStore::new(device);
+    let net_config = NetConfig::default();
+    let net = KlondikeNet::new(&vs.root(), &net_config);
+    let param_count = KlondikeNet::count_parameters(&vs);
+    println!("  Model: {} parameters (5d x 200s config)", param_count);
+
+    let selfplay_config = SelfPlayConfig {
+        n_determinizations: 5,
+        mcts_simulations: 200,
+        max_moves: 500,
+        dirichlet_frac: 0.0,
+        ..SelfPlayConfig::default()
+    };
+
+    // Previous result: Direct batch-1 = 17.48s/game (20 games)
+    println!("  Reference: Direct batch-1 = 17.48s/game (from prior run)\n");
+
+    for n_games in [16, 32, 64, 128] {
+        let seeds: Vec<u64> = (100..100 + n_games as u64).collect();
+        let max_batch = if n_games <= 64 { 64 } else { 128 };
+
+        print!("  [{:3} games, batch<={}] running... ", n_games, max_batch);
+
+        let start = Instant::now();
+        let games = std::thread::scope(|s| {
+            let (client, request_rx) = create_inference_channel(max_batch);
+            let mut server = InferenceServer::new(&net, device, request_rx, max_batch);
+
+            let server_handle = s.spawn(move || {
+                server.run();
+            });
+
+            let games = play_games_parallel(&selfplay_config, &client, &seeds);
+
+            drop(client);
+            server_handle.join().expect("server panicked");
+            games
+        });
+        let elapsed = start.elapsed();
+
+        let wins: usize = games.iter().filter(|g| g.won).count();
+        let total_moves: usize = games.iter().map(|g| g.n_moves).sum();
+        let wall_s = elapsed.as_secs_f64();
+        let per_game = wall_s / n_games as f64;
+        let per_move_ms = wall_s * 1000.0 / total_moves.max(1) as f64;
+        let throughput = n_games as f64 / wall_s;
+        let speedup = 17.48 / per_game;
+
+        println!(
+            "{:.1}s wall | {:.2}s/game | {:.1}ms/move | {:.1} games/sec | {:.1}x vs batch-1 | {}/{} wins | {} moves",
+            wall_s, per_game, per_move_ms, throughput, speedup, wins, n_games, total_moves,
+        );
+    }
 }

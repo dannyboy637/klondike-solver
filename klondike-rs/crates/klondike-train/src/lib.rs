@@ -5,5 +5,6 @@
 //! - [`pipeline`]: Full training loop: selfplay → buffer → train → eval → checkpoint.
 
 pub mod buffer;
+pub mod inference_server;
 pub mod pipeline;
 pub mod selfplay;

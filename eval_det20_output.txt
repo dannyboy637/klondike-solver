@@ -1,0 +1,115 @@
+'vswhere.exe' is not recognized as an internal or external command,
+operable program or batch file.
+**********************************************************************
+** Visual Studio 2022 Developer Command Prompt v17.0
+** Copyright (c) 2025 Microsoft Corporation
+**********************************************************************
+[vcvarsall.bat] Environment initialized for: 'x64'
+=== Building ===
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling bzip2-sys v0.1.13+1.0.8
+warning: unused `core::ops::ControlFlow` that must be used
+   --> C:\Users\Admin\Desktop\klondike-solver\lonelybot\src\engine.rs:182:9
+    |
+182 | /         self.deck
+183 | |             .iter_callback(filter, |_, card| -> ControlFlow<()> {
+184 | |                 mask |= card.mask();
+185 | |                 ControlFlow::Continue(())
+186 | |             });
+    | |______________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+182 |         let _ = self.deck
+    |         +++++++
+
+warning: unused `core::ops::ControlFlow` that must be used
+   --> C:\Users\Admin\Desktop\klondike-solver\lonelybot\src\engine.rs:198:9
+    |
+198 | /         iter_moves(packed_moves, |m| {
+199 | |             moves.push(m);
+200 | |             ControlFlow::<()>::Continue(())
+201 | |         });
+    | |__________^
+    |
+help: use `let _ = ...` to ignore the resulting value
+    |
+198 |         let _ = iter_moves(packed_moves, |m| {
+    |         +++++++
+
+warning: `lonelybot` (lib) generated 2 warnings
+   Compiling klondike-core v0.1.0 (C:\Users\Admin\Desktop\klondike-solver\klondike-rs\crates\klondike-core)
+   Compiling klondike-search v0.1.0 (C:\Users\Admin\Desktop\klondike-solver\klondike-rs\crates\klondike-search)
+   Compiling bzip2 v0.4.4
+   Compiling klondike-eval v0.1.0 (C:\Users\Admin\Desktop\klondike-solver\klondike-rs\crates\klondike-eval)
+   Compiling zstd-safe v5.0.2+zstd.1.5.2
+   Compiling zstd v0.11.2+zstd.1.5.2
+   Compiling zip v0.6.6
+   Compiling torch-sys v0.23.0
+   Compiling tch v0.23.0
+   Compiling klondike-nn v0.1.0 (C:\Users\Admin\Desktop\klondike-solver\klondike-rs\crates\klondike-nn)
+   Compiling klondike-train v0.1.0 (C:\Users\Admin\Desktop\klondike-solver\klondike-rs\crates\klondike-train)
+    Finished `release` profile [optimized] target(s) in 46.17s
+=== Build done, running eval ===
+warning: unused `core::ops::ControlFlow` that must be used
+   --> C:\Users\Admin\Desktop\klondike-solver\lonelybot\src\engine.rs:182:9
+    |
+182 | /         self.deck
+183 | |             .iter_callback(filter, |_, card| -> ControlFlow<()> {
+184 | |                 mask |= card.mask();
+185 | |                 ControlFlow::Continue(())
+186 | |             });
+    | |______________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+182 |         let _ = self.deck
+    |         +++++++
+
+warning: unused `core::ops::ControlFlow` that must be used
+   --> C:\Users\Admin\Desktop\klondike-solver\lonelybot\src\engine.rs:198:9
+    |
+198 | /         iter_moves(packed_moves, |m| {
+199 | |             moves.push(m);
+200 | |             ControlFlow::<()>::Continue(())
+201 | |         });
+    | |__________^
+    |
+help: use `let _ = ...` to ignore the resulting value
+    |
+198 |         let _ = iter_moves(packed_moves, |m| {
+    |         +++++++
+
+warning: `lonelybot` (lib) generated 2 warnings
+    Finished `release` profile [optimized] target(s) in 0.18s
+     Running `target\release\benchmark.exe --neural-pimc --checkpoint checkpoints/pc_heavy_512/model_best.safetensors --hidden-dim 512 --n-blocks 4 --det 20 --sims 200 --games 200 --log-every 50`
+============================================================
+Klondike Benchmark
+============================================================
+Games:            200
+Seed start:       0
+Draw step:        1
+Max moves:        500
+Mode:             Neural PIMC (batched GPU)
+Checkpoint:       checkpoints/pc_heavy_512/model_best.safetensors
+Model:            512h x 4b
+Determinizations: 20
+MCTS sims:        200
+============================================================
+Device:           Cuda(0)
+[    50/200] 23/50 = 46.00% CI(32.97%, 59.60%) SPRT=.. 15310.8ms/game
+[   100/200] 47/100 = 47.00% CI(37.51%, 56.71%) SPRT=.. 13754.6ms/game
+[   150/200] 73/150 = 48.67% CI(40.80%, 56.60%) SPRT=.. 12671.7ms/game
+[   200/200] 100/200 = 50.00% CI(43.14%, 56.86%) SPRT=.. 12745.7ms/game
+
+============================================================
+RESULTS
+============================================================
+Win rate:    100/200 = 50.00%
+Wilson 95%:  (43.14%, 56.86%)
+SPRT:        Inconclusive (need more games) (log_lr=-0.160)
+Time:        12745.7ms/game, 2549.1s total
+============================================================
+=== Done ===

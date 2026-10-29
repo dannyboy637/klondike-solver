@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use tch::{nn, nn::OptimizerConfig, Device, Kind, Tensor};
 
 use crate::buffer::ReplayBuffer;
+use crate::inference_server::{create_inference_channel, InferenceServer};
 use crate::selfplay::{play_games_parallel, SelfPlayConfig};
 
 /// Pipeline configuration.
@@ -180,7 +181,7 @@ pub fn run_pipeline(config: PipelineConfig) -> anyhow::Result<()> {
 
     // Try to resume from checkpoint
     let meta_path = checkpoint_path.join("metadata.json");
-    let model_path = checkpoint_path.join("model_latest.pt");
+    let model_path = checkpoint_path.join("model_latest.safetensors");
 
     if model_path.exists() && meta_path.exists() {
         vs.load(&model_path)?;
@@ -188,9 +189,12 @@ pub fn run_pipeline(config: PipelineConfig) -> anyhow::Result<()> {
         start_iteration = meta.iteration + 1;
         best_eval_rate = meta.best_eval_rate;
 
-        let buffer_path = checkpoint_path.join("buffer.json");
-        if buffer_path.exists() {
-            buffer = ReplayBuffer::load(&buffer_path)?;
+        let buffer_bin = checkpoint_path.join("buffer.bin");
+        let buffer_json = checkpoint_path.join("buffer.json");
+        if buffer_bin.exists() {
+            buffer = ReplayBuffer::load(&buffer_bin)?;
+        } else if buffer_json.exists() {
+            buffer = ReplayBuffer::load(&buffer_json)?;
         }
 
         let log_path = checkpoint_path.join("training_log.json");
@@ -204,23 +208,54 @@ pub fn run_pipeline(config: PipelineConfig) -> anyhow::Result<()> {
             buffer.len(),
             best_eval_rate
         );
-    } else if !config.warm_start.is_empty() {
-        let ws_path = Path::new(&config.warm_start);
-        if ws_path.exists() {
-            vs.load(ws_path)?;
-            println!("Initialized from warm start: {}", config.warm_start);
+    } else {
+        // No model checkpoint — check for buffer-only warm start
+        let buffer_bin = checkpoint_path.join("buffer.bin");
+        let buffer_json = checkpoint_path.join("buffer.json");
+        if buffer_bin.exists() {
+            buffer = ReplayBuffer::load(&buffer_bin)?;
+        } else if buffer_json.exists() {
+            buffer = ReplayBuffer::load(&buffer_json)?;
+            println!(
+                "Loaded existing buffer ({} positions), starting with fresh weights",
+                buffer.len()
+            );
+        }
+
+        if !config.warm_start.is_empty() {
+            let ws_path = Path::new(&config.warm_start);
+            if ws_path.exists() {
+                vs.load(ws_path)?;
+                println!("Initialized from warm start: {}", config.warm_start);
+            }
         }
     }
 
     for iteration in start_iteration..config.total_iterations {
         let iter_start = Instant::now();
 
-        // --- 1. Self-Play (parallel via rayon) ---
-        let eval_fn = NeuralEvalFn { net: &net, device };
+        // --- 1. Self-Play (parallel via rayon, batched GPU inference) ---
         let seeds: Vec<u64> = (0..config.games_per_iteration)
             .map(|g| (iteration * config.games_per_iteration + g) as u64)
             .collect();
-        let all_games = play_games_parallel(&config.selfplay, &eval_fn, &seeds);
+        let all_games = std::thread::scope(|s| {
+            let (client, request_rx) = create_inference_channel(64);
+
+            // Construct server here so its unsafe Send impl covers &net
+            let mut server = InferenceServer::new(&net, device, request_rx, 64);
+
+            // GPU inference server thread — batches requests from rayon workers
+            let server_handle = s.spawn(move || {
+                server.run();
+            });
+
+            let games = play_games_parallel(&config.selfplay, &client, &seeds);
+
+            // Drop client → closes channel → server exits
+            drop(client);
+            server_handle.join().expect("inference server thread panicked");
+            games
+        });
 
         let mut games_won = 0usize;
         let mut total_positions = 0usize;
@@ -309,19 +344,19 @@ pub fn run_pipeline(config: PipelineConfig) -> anyhow::Result<()> {
 
             if win_rate > best_eval_rate {
                 best_eval_rate = win_rate;
-                vs.save(checkpoint_path.join("model_best.pt"))?;
+                vs.save(checkpoint_path.join("model_best.safetensors"))?;
                 println!("  New best: {:.4}", best_eval_rate);
             }
         }
 
         // --- 4. Checkpoint ---
-        vs.save(checkpoint_path.join("model_latest.pt"))?;
+        vs.save(checkpoint_path.join("model_latest.safetensors"))?;
         let meta = CheckpointMeta {
             iteration,
             best_eval_rate,
         };
         fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
-        buffer.save(&checkpoint_path.join("buffer.json"))?;
+        buffer.save(&checkpoint_path.join("buffer.bin"))?;
 
         training_log.push(iter_log);
         fs::write(
@@ -584,7 +619,7 @@ mod tests {
         );
 
         // Verify model checkpoint exists
-        assert!(Path::new(&ckpt_dir).join("model_latest.pt").exists());
+        assert!(Path::new(&ckpt_dir).join("model_latest.safetensors").exists());
 
         // Verify metadata
         let meta_str = fs::read_to_string(Path::new(&ckpt_dir).join("metadata.json"))

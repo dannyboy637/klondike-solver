@@ -10,11 +10,12 @@ use klondike_core::actions::ACTION_SPACE_SIZE;
 use klondike_core::env::KlondikeEnv;
 use klondike_eval::benchmark::{run_benchmark, run_benchmark_sequential, BenchmarkConfig};
 use klondike_eval::stats::{sprt_test, SprtResult};
-use klondike_nn::inference::BatchedInference;
-use klondike_nn::model::NetConfig;
+use klondike_nn::inference::{auto_device, BatchedInference};
+use klondike_nn::model::{KlondikeNet, NetConfig};
 use klondike_search::eval_fn::{EvalFn, UniformEval};
 use klondike_search::hop::{play_hop_game, HopConfig};
 use klondike_search::pimc::{pimc_search, PimcConfig};
+use klondike_train::inference_server::{create_inference_channel, InferenceServer};
 
 #[derive(Parser)]
 #[command(
@@ -87,6 +88,11 @@ struct Args {
     /// SPRT alternative hypothesis (p1).
     #[arg(long, default_value_t = 0.52)]
     sprt_p1: f64,
+
+    /// Use neural network with PIMC search (batched GPU inference).
+    /// Requires --checkpoint. Uses --det and --sims for search config.
+    #[arg(long)]
+    neural_pimc: bool,
 }
 
 /// Play a single game using PIMC search with the given eval function.
@@ -197,7 +203,71 @@ fn main() -> Result<()> {
     println!("Draw step:        {}", args.draw_step);
     println!("Max moves:        {}", args.max_moves);
 
-    let result = if let Some(ref checkpoint_path) = args.checkpoint {
+    let result = if args.neural_pimc {
+        // Neural PIMC mode — MCTS search guided by neural network
+        let checkpoint_path = args
+            .checkpoint
+            .as_ref()
+            .expect("--neural-pimc requires --checkpoint");
+        let net_config = NetConfig {
+            hidden_dim: args.hidden_dim,
+            n_blocks: args.n_blocks,
+            ..Default::default()
+        };
+        let pimc_config = PimcConfig {
+            n_determinizations: args.det,
+            mcts_simulations: args.sims,
+            temperature: 0.05,
+            dirichlet_frac: 0.0,
+            ..PimcConfig::default()
+        };
+        println!("Mode:             Neural PIMC (batched GPU)");
+        println!("Checkpoint:       {}", checkpoint_path.display());
+        println!(
+            "Model:            {}h x {}b",
+            args.hidden_dim, args.n_blocks
+        );
+        println!("Determinizations: {}", args.det);
+        println!("MCTS sims:        {}", args.sims);
+        println!("{}", "=".repeat(60));
+
+        // Load model
+        let device = auto_device();
+        println!("Device:           {:?}", device);
+        let mut vs = tch::nn::VarStore::new(device);
+        let net = KlondikeNet::new(&vs.root(), &net_config);
+        vs.load(checkpoint_path)?;
+
+        let draw_step = args.draw_step;
+        let max_moves = args.max_moves;
+        let n_games = config.n_games;
+        let seed_start = config.seed_start;
+        let log_every = config.log_every;
+
+        // Run with inference server for parallel MCTS games
+        let result = std::thread::scope(|s| {
+            let (client, request_rx) = create_inference_channel(64);
+            let mut server = InferenceServer::new(&net, device, request_rx, 64);
+            let server_handle = s.spawn(move || {
+                server.run();
+            });
+
+            let bench_config = BenchmarkConfig {
+                n_games,
+                seed_start,
+                log_every,
+            };
+            let result = run_benchmark(&bench_config, &|seed| {
+                play_pimc_game(seed, draw_step, &pimc_config, &client, max_moves)
+            });
+
+            drop(client);
+            server_handle.join().expect("inference server panicked");
+            result
+        });
+
+        result
+    } else if let Some(ref checkpoint_path) = args.checkpoint {
         // Neural greedy mode
         let net_config = NetConfig {
             hidden_dim: args.hidden_dim,

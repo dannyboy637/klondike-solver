@@ -44,7 +44,7 @@ Lonelybot is a direct path dependency — no PyO3, no FFI overhead.
 - Python 3.12 venv (NOT 3.14 — too new for PyTorch)
 - Key env vars: `LIBTORCH_USE_PYTORCH=1`, `LIBTORCH_BYPASS_VERSION_CHECK=1`
 - PATH must include: `.venv\Scripts`, `.cargo\bin`, `.venv\Lib\site-packages\torch\lib`
-- **CUDA issue (unresolved)**: tch 0.23 expects PyTorch 2.10, using nightly 2.12 cu126. Compiles but `tch::Cuda::is_available()` returns false at runtime.
+- **CUDA**: Fixed. `ensure_cuda_loaded()` in `inference.rs` force-loads `c10_cuda.dll` + `torch_cuda.dll` before tch init. `auto_device()` returns `Cuda(0)` with RTX 4060 Ti.
 
 ## macOS Build (MacBook — M4 MPS)
 - `LIBTORCH_USE_PYTORCH=1 DYLD_LIBRARY_PATH=../.venv/lib/python3.14/site-packages/torch/lib`
